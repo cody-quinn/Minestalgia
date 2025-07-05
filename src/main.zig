@@ -10,6 +10,9 @@ const proto = @import("protocol.zig");
 
 const BUFFER_SIZE = 16_384;
 
+var chunk_data: [81_920]u8 = undefined;
+var chunk_data_compressed: []u8 = undefined;
+
 const PacketBuffer = struct {
     data: [BUFFER_SIZE]u8 = undefined,
     items: []u8 = &[_]u8{},
@@ -26,6 +29,10 @@ const PacketBuffer = struct {
         @memcpy(self.data[self.items.len..][0..data.len], data);
         self.items = self.data[0 .. self.items.len + data.len];
         return data.len;
+    }
+
+    fn written(self: *PacketBuffer, amount: usize) void {
+        self.items = self.data[0 .. self.items.len + amount];
     }
 
     fn writer(self: *PacketBuffer) Writer {
@@ -58,32 +65,36 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(gpa.allocator());
     defer arena.deinit();
     const alloc = arena.allocator();
-    _ = alloc;
 
-    // var buf = PacketBuffer{};
+    @memset(&chunk_data, 0);
+    @memset(chunk_data[49152..81920], 0xFF);
 
-    // var foo = [_]u16{ 'C', 'a', 't' };
-    // const packet = proto.ClientboundLogin{
-    //     .entity_id = 14,
-    //     .username = .{
-    //         .length = 3,
-    //         .value = &foo,
-    //     },
-    //     .map_seed = 0,
-    //     .dimension = 0,
-    // };
+    for (0..16) |x| {
+        for (0..10) |y| {
+            for (0..16) |z| {
+                const index = y + (z * 128) + (x * 128 * 16);
+                chunk_data[index] = 1;
+            }
+        }
+    }
 
-    // try proto.writePacket(buf.writer().any(), .{ .login = packet });
+    for (3..13, 0..) |x, i| {
+        for (3..13, 0..) |z, j| {
+            const index = 10 + (z * 128) + (x * 128 * 16);
+            chunk_data[index] = @min(96, (@as(u8, @intCast(i)) * 10) + @as(u8, @intCast(j)) % 10);
+            chunk_data[index + 1] = 68;
+        }
+    }
 
-    // printBytes(buf.items);
-
-    // const p = try proto.readPacket(buf.reader().any(), alloc);
-
-    // std.debug.print("{}", .{p});
+    var ingress = std.io.fixedBufferStream(&chunk_data);
+    var egress = try std.ArrayList(u8).initCapacity(alloc, 16 * 128 * 16);
+    defer egress.deinit();
+    try std.compress.zlib.compress(ingress.reader(), egress.writer(), .{ .level = .default });
+    chunk_data_compressed = egress.items;
 
     const address = try net.Address.parseIp("127.0.0.1", 25565);
 
-    var server = try Server.init(gpa.allocator(), 1023);
+    var server = try Server.init(alloc, 1023);
     defer server.deinit();
     try server.run(address);
 }
@@ -153,9 +164,9 @@ const Server = struct {
                 const client = &self.clients[i];
                 if (revents & posix.POLL.IN == posix.POLL.IN) {
                     // Read message
-                    var buffer: [1024]u8 = undefined;
+                    var buffer = PacketBuffer{};
                     while (true) {
-                        const length = posix.read(client.socket, &buffer) catch |err| {
+                        const length = posix.read(client.socket, &buffer.data) catch |err| {
                             if (err == error.WouldBlock) {
                                 i += 1;
                                 break;
@@ -165,12 +176,139 @@ const Server = struct {
                             break;
                         };
 
+                        buffer.written(length);
+
                         if (length == 0) {
                             self.removeClient(i);
                             break;
                         }
 
-                        printBytes(buffer[0..length]);
+                        printBytes(buffer.data[0..length]);
+                    }
+
+                    const packet = proto.readPacket(buffer.reader().any(), self.allocator) catch |err| {
+                        if (err == error.InvalidPacket) {
+                            std.debug.print("Got unknown packet\n", .{});
+                            _ = try posix.write(client.socket, &.{0x00});
+                        }
+                        continue;
+                    };
+
+                    std.debug.print("{}\n", .{packet});
+
+                    if (packet == .keep_alive) {
+                        _ = try posix.write(client.socket, &.{0x00});
+                    }
+
+                    if (packet == .handshake) {
+                        _ = try posix.write(client.socket, &.{ 0x02, 0x00, 0x01, 0x00, '-' });
+                    }
+
+                    if (packet == .login) {
+                        _ = try posix.write(client.socket, &.{
+                            0x01,
+                            0x00, 0x00, 0x00, 0x0F, // id
+                            0x00, 0x00,//
+                            0x00,          //
+                            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // seed
+                            0x00, // level
+                        });
+
+                        // Spawn position
+                        _ = try posix.write(client.socket, &.{
+                            0x06,
+                            0x00, 0x00, 0x00, 120, // x
+                            0x00, 0x00, 0x00, 64, // y
+                            0x00, 0x00, 0x00, 120, // z
+                        });
+
+                        // Time update
+                        _ = try posix.write(client.socket, &.{
+                            0x04,
+                            0x00,
+                            0x00,
+                            0x00,
+                            0x00,
+                            0x00,
+                            0x00,
+                            0x18,
+                            0x00,
+                        });
+
+                        // Update health
+                        _ = try posix.write(client.socket, &.{
+                            0x08,
+                            0x00,
+                            0x10,
+                        });
+
+                        // Window items
+                        _ = try posix.write(client.socket, &.{
+                            0x68,
+                            0x00, // inv id
+                            0x00, 44, // item count
+                            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 1
+                            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 2
+                            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 3
+                            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 4
+                            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 5
+                            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 6
+                            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 7
+                            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 8
+                            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 9
+                            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 10
+                            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 11
+                        });
+
+                        for (0..15) |x| {
+                            for (0..15) |y| {
+                                _ = try posix.write(client.socket, &.{
+                                    0x32,
+                                    0x00, 0x00, 0x00, @as(u8, @intCast(x)), // x
+                                    0x00, 0x00, 0x00, @as(u8, @intCast(y)), // y
+                                    0x01,
+                                });
+                            }
+                        }
+
+                        for (0..15) |x| {
+                            for (0..15) |y| {
+                                const a = try posix.write(client.socket, &.{
+                                    0x33,
+                                    0x00, 0x00, 0x00, @as(u8, @intCast(x)) * 16, // x
+                                    0x00, 0x00, // y
+                                    0x00, 0x00, 0x00, @as(u8, @intCast(y)) * 16, // z
+                                    15, 127, 15, // size
+                                    @truncate(chunk_data_compressed.len >> 24),
+                                    @truncate(chunk_data_compressed.len >> 16),
+                                    @truncate(chunk_data_compressed.len >> 8),
+                                    @truncate(chunk_data_compressed.len),
+                                });
+                                const b = try posix.write(client.socket, chunk_data_compressed);
+                                std.debug.print("{} - {} - {}\n", .{chunk_data_compressed.len, a, b});
+                            }
+                        }
+
+                        _ = try posix.write(client.socket, &.{
+                            0x0D,
+                            0x40, 0x60, 0xE0, 0x00, 0x00, 0x00, 0x00, 0x00, // x
+                                0x40, 0x52, 0x53, 0x33, 0x33, 0x33, 0x33, 0x33, // stance
+                                0x40, 0x52, 0x53, 0x33, 0x33, 0x33, 0x33, 0x33, // y
+                                0x40, 0x60, 0xE0, 0x00, 0x00, 0x00, 0x00, 0x00, // z
+                                0x00, 0x00, 0x00, 0x00, // yaw
+                                0x00, 0x00, 0x00, 0x00, // pitch
+                                0x00,
+                        });
+
+                        const msg = "Hello from Zig!";
+                        _ = try posix.write(client.socket, &.{
+                            0x03, 0x00, msg.len
+                        });
+                        for (msg) |c| {
+                            _ = try posix.write(client.socket, &.{
+                                0x00, c
+                            });
+                        }
                     }
                 }
             }
