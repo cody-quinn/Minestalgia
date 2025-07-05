@@ -1,7 +1,7 @@
 .{
     .name = .Minestalgia,
     .version = "0.0.0",
-    .fingerprint = 0xb8d362dc6b6be3d6, // Changing this has security and trust implications.
+    .fingerprint = 0xc80f1f5891d5415, // Changing this has security and trust implications.
     .minimum_zig_version = "0.14.1",
 
     .paths = .{

@@ -10,14 +10,80 @@ const proto = @import("protocol.zig");
 
 const BUFFER_SIZE = 16_384;
 
+const PacketBuffer = struct {
+    data: [BUFFER_SIZE]u8 = undefined,
+    items: []u8 = &[_]u8{},
+    pos: usize = 0,
+
+    const Writer = std.io.Writer(*PacketBuffer, anyerror, write);
+    const Reader = std.io.Reader(*PacketBuffer, anyerror, read);
+
+    fn write(self: *PacketBuffer, data: []const u8) !usize {
+        if (self.items.len + data.len > self.data.len) {
+            return error.EndOfBuffer;
+        }
+
+        @memcpy(self.data[self.items.len..][0..data.len], data);
+        self.items = self.data[0 .. self.items.len + data.len];
+        return data.len;
+    }
+
+    fn writer(self: *PacketBuffer) Writer {
+        return .{ .context = self };
+    }
+
+    fn read(self: *PacketBuffer, buffer: []u8) !usize {
+        const remainingBytes = self.items.len - self.pos;
+        const len = @min(remainingBytes, buffer.len);
+
+        if (len < 0) {
+            return error.EndOfBuffer;
+        }
+
+        @memcpy(buffer[0..len], self.items[self.pos .. self.pos + len]);
+        self.pos += len;
+        return len;
+    }
+
+    fn reader(self: *PacketBuffer) Reader {
+        return .{ .context = self };
+    }
+};
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+
+    // Making an arena allocator for packets
+    var arena = std.heap.ArenaAllocator.init(gpa.allocator());
+    defer arena.deinit();
+    const alloc = arena.allocator();
+    _ = alloc;
+
+    // var buf = PacketBuffer{};
+
+    // var foo = [_]u16{ 'C', 'a', 't' };
+    // const packet = proto.ClientboundLogin{
+    //     .entity_id = 14,
+    //     .username = .{
+    //         .length = 3,
+    //         .value = &foo,
+    //     },
+    //     .map_seed = 0,
+    //     .dimension = 0,
+    // };
+
+    // try proto.writePacket(buf.writer().any(), .{ .login = packet });
+
+    // printBytes(buf.items);
+
+    // const p = try proto.readPacket(buf.reader().any(), alloc);
+
+    // std.debug.print("{}", .{p});
 
     const address = try net.Address.parseIp("127.0.0.1", 25565);
 
-    var server = try Server.init(allocator, 1023);
+    var server = try Server.init(gpa.allocator(), 1023);
     defer server.deinit();
     try server.run(address);
 }
@@ -30,8 +96,6 @@ const Server = struct {
     connected: usize,
     clients: []Client,
     client_polls: []posix.pollfd,
-
-    queue: std.ArrayList([]const u8),
 
     fn init(allocator: Allocator, max_clients: usize) !Server {
         const polls = try allocator.alloc(posix.pollfd, max_clients + 1);
@@ -46,7 +110,6 @@ const Server = struct {
             .connected = 0,
             .clients = clients,
             .client_polls = polls[1..],
-            .queue = std.ArrayList([]const u8).init(allocator),
         };
     }
 
@@ -102,10 +165,12 @@ const Server = struct {
                             break;
                         };
 
-                        self.queue.append(buffer[0..length]) catch |err| {
-                            std.debug.print("Error adding message to queue:\n{}\n", .{err});
+                        if (length == 0) {
+                            self.removeClient(i);
                             break;
-                        };
+                        }
+
+                        printBytes(buffer[0..length]);
                     }
                 }
             }
@@ -157,7 +222,6 @@ const Server = struct {
     fn deinit(self: *Server) void {
         self.allocator.free(self.polls);
         self.allocator.free(self.clients);
-        self.queue.deinit();
     }
 };
 
@@ -167,11 +231,17 @@ const Client = struct {
     socket: posix.socket_t,
     address: net.Address,
 
+    read_buffer: []u8,
+
     fn init(allocator: Allocator, socket: posix.socket_t, address: net.Address) !Client {
+        const read_buffer = try allocator.alloc(u8, BUFFER_SIZE);
+        errdefer allocator.free(read_buffer);
+
         return Client{
             .allocator = allocator,
             .socket = socket,
             .address = address,
+            .read_buffer = read_buffer,
         };
     }
 
@@ -184,21 +254,23 @@ const Client = struct {
         _ = packet;
     }
 
-    fn deinit() void {}
-};
-
-const Reader = struct {
-    buf: []u8,
-
-    pos: usize = 0,
-    start: usize = 0,
-
-    socket: posix.socket_t,
-
-    fn readByte() !void {
-        //
+    fn deinit(self: *Client) void {
+        self.allocator.free(self.read_buffer);
     }
 };
+
+// pub const Reader = struct {
+//     buf: []u8,
+
+//     pos: usize = 0,
+//     start: usize = 0,
+
+//     socket: posix.socket_t,
+
+//     pub fn readByte() !void {
+//         //
+//     }
+// };
 
 fn readMessage(socket: posix.socket_t, buf: []u8) ![]u8 {
     var pos: usize = 0;
@@ -238,4 +310,15 @@ fn writeAllVectorized(socket: posix.socket_t, vec: []posix.iovec_const) !void {
         vec[i].base += n;
         vec[i].len -= n;
     }
+}
+
+fn printBytes(bytes: []const u8) void {
+    std.debug.print("Length: {}", .{bytes.len});
+    for (bytes, 0..) |b, i| {
+        if (i % 16 == 0) {
+            std.debug.print("\n{x:0>4}: ", .{i});
+        }
+        std.debug.print("{x:0>2} ", .{b});
+    }
+    std.debug.print("(EOF) \n", .{});
 }
