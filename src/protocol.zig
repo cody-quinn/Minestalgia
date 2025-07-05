@@ -1,20 +1,6 @@
 const std = @import("std");
 const io = std.io;
 
-pub const Direction = enum {
-    Universal,
-    Serverbound,
-    Clientbound,
-
-    fn isServerbound(self: Direction) bool {
-        return self != .Clientbound;
-    }
-
-    fn isClientbound(self: Direction) bool {
-        return self != .Serverbound;
-    }
-};
-
 pub const String16 = struct {
     length: u16,
     value: []u16,
@@ -42,8 +28,6 @@ pub const String16 = struct {
 pub const KeepAlive = struct {};
 
 pub const ServerboundLogin = struct {
-    pub const ID = 0x01;
-
     protocol_version: u32,
     username: String16,
     map_seed: u64,
@@ -91,6 +75,46 @@ pub const ClientboundHandshake = struct {
     }
 };
 
+pub const ChatMessage = struct {
+    message: String16,
+
+    pub fn encode(self: ChatMessage, writer: io.AnyWriter) !void {
+        try self.message.encode(writer);
+    }
+
+    pub fn decode(reader: io.AnyReader, alloc: std.mem.Allocator) !ChatMessage {
+        var self: ChatMessage = undefined;
+        self.message = try String16.decode(reader, alloc);
+        return self;
+    }
+
+    pub fn fromUtfString(string: []const u8, alloc: std.mem.Allocator) !ChatMessage {
+        var value = try alloc.alloc(u16, string.len);
+        for (string, 0..) |char, i| {
+            value[i] = if (char == '&') 0x00A7 else char;
+            // if (char == '&') {
+            //
+            // } else {
+            //     value[i] = char;
+            // }
+        }
+        return ChatMessage{
+            .message = String16{
+                .length = @intCast(value.len),
+                .value = value,
+            }
+        };
+    }
+
+    pub fn toUtfString(self: ChatMessage, alloc: std.mem.Allocator) ![]const u8 {
+        var string = try alloc.alloc(u8, self.message.length);
+        for (self.message.value, 0..) |char, i| {
+            string[i] = @truncate(char);
+        }
+        return string;
+    }
+};
+
 pub const ClientboundPlayerPositionAndLook = struct {
     x: f64,
     y: f64,
@@ -101,22 +125,25 @@ pub const ClientboundPlayerPositionAndLook = struct {
     on_ground: bool,
 };
 
-pub const PacketId = enum(u8) {
-    keep_alive = 0x00,
-    login = 0x01,
-    handshake = 0x02,
-};
-
-pub const ServerboundPacket = union(PacketId) {
+pub const ServerboundPacket = union(enum) {
     keep_alive: KeepAlive,
     login: ServerboundLogin,
     handshake: ServerboundHandshake,
+    chat_message: ChatMessage,
 };
 
-pub const ClientboundPacket = union(PacketId) {
+pub const ClientboundPacketId = enum(u8) {
+    keep_alive = 0x00,
+    login = 0x01,
+    handshake = 0x02,
+    chat_message = 0x03,
+};
+
+pub const ClientboundPacket = union(ClientboundPacketId) {
     keep_alive: KeepAlive,
     login: ClientboundLogin,
     handshake: ClientboundHandshake,
+    chat_message: ChatMessage,
 };
 
 pub fn readPacket(reader: io.AnyReader, alloc: std.mem.Allocator) !ServerboundPacket {
@@ -126,6 +153,7 @@ pub fn readPacket(reader: io.AnyReader, alloc: std.mem.Allocator) !ServerboundPa
         0x00 => .{ .keep_alive = .{} },
         0x01 => .{ .login = try ServerboundLogin.decode(reader, alloc) },
         0x02 => .{ .handshake = try ServerboundHandshake.decode(reader, alloc) },
+        0x03 => .{ .chat_message = try ChatMessage.decode(reader, alloc) },
         else => error.InvalidPacket,
     };
 }
@@ -137,5 +165,6 @@ pub fn writePacket(writer: io.AnyWriter, packet: ClientboundPacket) !void {
         .keep_alive => {},
         .login => |p| try p.encode(writer),
         .handshake => {},
+        .chat_message => |p| try p.encode(writer),
     }
 }

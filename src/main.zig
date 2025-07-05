@@ -55,6 +55,11 @@ const PacketBuffer = struct {
     fn reader(self: *PacketBuffer) Reader {
         return .{ .context = self };
     }
+
+    fn reset(self: *PacketBuffer) void {
+        self.items = &[_]u8{};
+        self.pos = 0;
+    }
 };
 
 pub fn main() !void {
@@ -247,18 +252,14 @@ const Server = struct {
                             0x68,
                             0x00, // inv id
                             0x00, 44, // item count
-                            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 1
-                            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 2
-                            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 3
-                            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 4
-                            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 5
-                            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 6
-                            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 7
-                            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 8
-                            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 9
-                            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 10
-                            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 11
                         });
+
+                        for (1..45) |j| {
+                            const k: u8 = @intCast(j);
+                            _ = try posix.write(client.socket, &.{
+                                0x00, k, k, 0x00, 0x00
+                            });
+                        }
 
                         for (0..15) |x| {
                             for (0..15) |y| {
@@ -292,22 +293,38 @@ const Server = struct {
                         _ = try posix.write(client.socket, &.{
                             0x0D,
                             0x40, 0x60, 0xE0, 0x00, 0x00, 0x00, 0x00, 0x00, // x
-                                0x40, 0x52, 0x53, 0x33, 0x33, 0x33, 0x33, 0x33, // stance
-                                0x40, 0x52, 0x53, 0x33, 0x33, 0x33, 0x33, 0x33, // y
-                                0x40, 0x60, 0xE0, 0x00, 0x00, 0x00, 0x00, 0x00, // z
-                                0x00, 0x00, 0x00, 0x00, // yaw
-                                0x00, 0x00, 0x00, 0x00, // pitch
-                                0x00,
+                            0x40, 0x52, 0x53, 0x33, 0x33, 0x33, 0x33, 0x33, // stance
+                            0x40, 0x52, 0x53, 0x33, 0x33, 0x33, 0x33, 0x33, // y
+                            0x40, 0x60, 0xE0, 0x00, 0x00, 0x00, 0x00, 0x00, // z
+                            0x00, 0x00, 0x00, 0x00, // yaw
+                            0x00, 0x00, 0x00, 0x00, // pitch
+                            0x00,
                         });
 
-                        const msg = "Hello from Zig!";
-                        _ = try posix.write(client.socket, &.{
-                            0x03, 0x00, msg.len
+                        try client.writeMessage(.{
+                            .chat_message = try proto.ChatMessage.fromUtfString("Hello from Zig!", self.allocator),
                         });
-                        for (msg) |c| {
-                            _ = try posix.write(client.socket, &.{
-                                0x00, c
-                            });
+                    }
+
+                    if (packet == .chat_message) {
+                        const value = try packet.chat_message.toUtfString(self.allocator);
+                        defer self.allocator.free(value);
+
+                        if (value[0] == '/') {
+                            if (std.mem.eql(u8, value, "/help")) {
+                                inline for (.{
+                                    "--- Help ---",
+                                    "wowwie"
+                                }) |msg| {
+                                    try client.writeMessage(.{
+                                        .chat_message = try proto.ChatMessage.fromUtfString(msg, self.allocator)
+                                    });
+                                }
+                            } else {
+                                try client.writeMessage(.{
+                                    .chat_message = try proto.ChatMessage.fromUtfString("&4Unknown command. Check /help", self.allocator)
+                                });
+                            }
                         }
                     }
                 }
@@ -370,45 +387,41 @@ const Client = struct {
     address: net.Address,
 
     read_buffer: []u8,
+    write_buffer: PacketBuffer,
 
     fn init(allocator: Allocator, socket: posix.socket_t, address: net.Address) !Client {
         const read_buffer = try allocator.alloc(u8, BUFFER_SIZE);
         errdefer allocator.free(read_buffer);
+
+        // const write_buffer_data = try allocator.alloc(u8, BUFFER_SIZE);
+        // errdefer allocator.free(write_buffer_data);
+        const write_buffer = PacketBuffer{};
 
         return Client{
             .allocator = allocator,
             .socket = socket,
             .address = address,
             .read_buffer = read_buffer,
+            .write_buffer = write_buffer,
         };
     }
 
-    fn readMessage(self: *Client) !proto.ClientboundPacket {
+    fn readMessage(self: *Client) !proto.ServerboundPacket {
         _ = self;
     }
 
-    fn writeMessage(self: *Client, packet: proto.ServerboundPacket) !void {
-        _ = self;
-        _ = packet;
+    fn writeMessage(self: *Client, packet: proto.ClientboundPacket) !void {
+        try proto.writePacket(self.write_buffer.writer().any(), packet);
+        const n = try posix.write(self.socket, self.write_buffer.items);
+        std.debug.print("Wrote {} bytes\n", .{n});
+        self.write_buffer.reset();
+        // self.write_buffer.items
     }
 
     fn deinit(self: *Client) void {
         self.allocator.free(self.read_buffer);
     }
 };
-
-// pub const Reader = struct {
-//     buf: []u8,
-
-//     pos: usize = 0,
-//     start: usize = 0,
-
-//     socket: posix.socket_t,
-
-//     pub fn readByte() !void {
-//         //
-//     }
-// };
 
 fn readMessage(socket: posix.socket_t, buf: []u8) ![]u8 {
     var pos: usize = 0;
