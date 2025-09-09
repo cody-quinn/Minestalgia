@@ -78,14 +78,29 @@ pub fn run(self: *Self, address: net.Address) !void {
 
             const client = &self.connections[i];
             if (revents & posix.POLL.IN == posix.POLL.IN) {
-                const packet = client.readMessage() catch |err| {
-                    if (err == error.ClientDisconnected) {
+                const packet = client.readMessage() catch |err| switch (err) {
+                    error.Disconnected => {
+                        std.debug.print("Client {} disconnected\n", .{client.address.getPort()});
                         self.removeClient(i);
                         i += 1;
-                    }
-
-                    std.debug.print("{}\n", .{err});
-                    continue;
+                        continue;
+                    },
+                    error.InvalidPacket => {
+                        std.debug.print("Client {} sent invalid packet\n", .{client.address.getPort()});
+                        self.removeClient(i);
+                        i += 1;
+                        continue;
+                    },
+                    error.EndOfStream => {
+                        continue;
+                    },
+                    else => {
+                        std.debug.print("Client {} had error {}\n", .{
+                            client.address.getPort(),
+                            err,
+                        });
+                        continue;
+                    },
                 };
 
                 std.debug.print("{}\n", .{packet});
