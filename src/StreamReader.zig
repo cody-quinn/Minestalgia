@@ -32,6 +32,16 @@ pub fn readInt(self: *Self, comptime T: type, endian: std.builtin.Endian) Error!
     return value;
 }
 
+pub fn readFloat(self: *Self, comptime T: type) Error!T {
+    if (self.head + @sizeOf(T) > self.stream.len) {
+        return Error.EndOfStream;
+    }
+
+    const value: T = @as(*T, @constCast(@ptrCast(&self.stream[self.head .. self.head + @sizeOf(T)]))).*;
+    self.head += @sizeOf(T);
+    return value;
+}
+
 pub fn readBoolean(self: *Self) Error!bool {
     return try self.readInt(u8, .big) != 0;
 }
@@ -42,7 +52,7 @@ pub fn readStringUtf8(self: *Self, alloc: mem.Allocator) ErrorAllocating![]const
     errdefer self.head -= @sizeOf(u16);
 
     if (self.head + length > self.stream.len) {
-        return error.EndOfStream;
+        return Error.EndOfStream;
     }
 
     const string = try alloc.alloc(u8, length);
@@ -58,7 +68,7 @@ pub fn readStringUtf16BE(self: *Self, alloc: mem.Allocator) ErrorAllocating![]co
     const sourceLength = try self.readInt(u16, .big);
 
     if (self.head + sourceLength * 2 > self.stream.len) {
-        return error.EndOfStream;
+        return Error.EndOfStream;
     }
 
     var pos: usize = 0;
@@ -70,7 +80,7 @@ pub fn readStringUtf16BE(self: *Self, alloc: mem.Allocator) ErrorAllocating![]co
         const char: u16 = self.readInt(u16, .big) catch unreachable;
         const bytes: u8 = if (char <= 0x7F) 1 else if (char <= 0x77F) 2 else 3;
 
-        if (pos + bytes >= length) {
+        if (pos + bytes > length) {
             length = @min(length * 2, sourceLength * 3);
             string = try alloc.realloc(string, length);
         }
@@ -92,6 +102,8 @@ pub fn readStringUtf16BE(self: *Self, alloc: mem.Allocator) ErrorAllocating![]co
         pos += bytes;
     }
 
+    // TODO: Figure out if this is ok to do
+    string.len = pos;
     return string;
 }
 

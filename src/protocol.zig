@@ -81,7 +81,49 @@ pub const ChatMessage = struct {
     }
 };
 
-pub const ClientboundPlayerPositionAndLook = struct {
+pub const PlayerOnGround = struct {
+    on_ground: bool,
+
+    pub fn decode(reader: *StreamReader) !PlayerOnGround {
+        var self: PlayerOnGround = undefined;
+        self.on_ground = try reader.readBoolean();
+        return self;
+    }
+};
+
+pub const PlayerPosition = struct {
+    x: f64,
+    y: f64,
+    stance: f64,
+    z: f64,
+    on_ground: bool,
+
+    pub fn decode(reader: *StreamReader) !PlayerPosition {
+        var self: PlayerPosition = undefined;
+        self.x = try reader.readFloat(f64);
+        self.y = try reader.readFloat(f64);
+        self.stance = try reader.readFloat(f64);
+        self.z = try reader.readFloat(f64);
+        self.on_ground = try reader.readBoolean();
+        return self;
+    }
+};
+
+pub const PlayerLook = struct {
+    yaw: f32,
+    pitch: f32,
+    on_ground: bool,
+
+    pub fn decode(reader: *StreamReader) !PlayerLook {
+        var self: PlayerLook = undefined;
+        self.yaw = try reader.readFloat(f32);
+        self.pitch = try reader.readFloat(f32);
+        self.on_ground = try reader.readBoolean();
+        return self;
+    }
+};
+
+pub const PlayerPositionAndLook = struct {
     x: f64,
     y: f64,
     stance: f64,
@@ -89,6 +131,18 @@ pub const ClientboundPlayerPositionAndLook = struct {
     yaw: f32,
     pitch: f32,
     on_ground: bool,
+
+    pub fn decode(reader: *StreamReader) !PlayerPositionAndLook {
+        var self: PlayerPositionAndLook = undefined;
+        self.x = try reader.readFloat(f64);
+        self.y = try reader.readFloat(f64);
+        self.stance = try reader.readFloat(f64);
+        self.z = try reader.readFloat(f64);
+        self.yaw = try reader.readFloat(f32);
+        self.pitch = try reader.readFloat(f32);
+        self.on_ground = try reader.readBoolean();
+        return self;
+    }
 };
 
 pub const ServerboundPacket = union(enum) {
@@ -96,6 +150,10 @@ pub const ServerboundPacket = union(enum) {
     login: ServerboundLogin,
     handshake: ServerboundHandshake,
     chat_message: ChatMessage,
+    player_on_ground: PlayerOnGround,
+    player_position: PlayerPosition,
+    player_look: PlayerLook,
+    player_position_and_look: PlayerPositionAndLook,
 };
 
 pub const ClientboundPacketId = enum(u8) {
@@ -115,11 +173,17 @@ pub const ClientboundPacket = union(ClientboundPacketId) {
 pub fn readPacket(reader: *StreamReader, alloc: std.mem.Allocator) !ServerboundPacket {
     const packet_id = try reader.readByte();
 
+    std.debug.print("Read packet ID 0x{0X:0>2} ({0d})\n", .{packet_id});
+
     return switch (packet_id) {
         0x00 => .{ .keep_alive = .{} },
         0x01 => .{ .login = try ServerboundLogin.decode(reader, alloc) },
         0x02 => .{ .handshake = try ServerboundHandshake.decode(reader, alloc) },
         0x03 => .{ .chat_message = try ChatMessage.decode(reader, alloc) },
+        0x0A => .{ .player_on_ground = try PlayerOnGround.decode(reader) },
+        0x0B => .{ .player_position = try PlayerPosition.decode(reader) },
+        0x0C => .{ .player_look = try PlayerLook.decode(reader) },
+        0x0D => .{ .player_position_and_look = try PlayerPositionAndLook.decode(reader) },
         else => error.InvalidPacket,
     };
 }

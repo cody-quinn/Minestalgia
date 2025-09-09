@@ -216,7 +216,7 @@ pub fn run(self: *Self, address: net.Address) !void {
 
                     if (value[0] == '/') {
                         var parts = mem.splitScalar(u8, value[1..], ' ');
-                        const command = parts.next() orelse "utf";
+                        const command = parts.next() orelse "help";
 
                         if (mem.eql(u8, command, "help")) {
                             inline for (.{
