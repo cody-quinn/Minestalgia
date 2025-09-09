@@ -1,42 +1,28 @@
 const std = @import("std");
+
+const StreamReader = @import("StreamReader.zig");
 const io = std.io;
 
-pub const String16 = struct {
-    length: u16,
-    value: []u16,
-
-    pub fn encode(self: String16, writer: io.AnyWriter) !void {
-        try writer.writeInt(u16, self.length, .big);
-        for (0..self.length) |i| {
-            try writer.writeInt(u16, self.value[i], .big);
-        }
+fn writeString16(str: []const u8, writer: io.AnyWriter) !void {
+    try writer.writeInt(u16, @intCast(str.len), .big);
+    for (str) |c| {
+        try writer.writeInt(u16, c, .big);
     }
-
-    pub fn decode(reader: io.AnyReader, alloc: std.mem.Allocator) !String16 {
-        var self: String16 = undefined;
-        self.length = try reader.readInt(u16, .big);
-        self.value = try alloc.alloc(u16, self.length);
-
-        for (0..self.length) |i| {
-            self.value[i] = try reader.readInt(u16, .big);
-        }
-        return self;
-    }
-};
+}
 
 // Packets
 pub const KeepAlive = struct {};
 
 pub const ServerboundLogin = struct {
     protocol_version: u32,
-    username: String16,
+    username: []const u8,
     map_seed: u64,
     dimension: u8,
 
-    pub fn decode(reader: io.AnyReader, alloc: std.mem.Allocator) !ServerboundLogin {
+    pub fn decode(reader: *StreamReader, alloc: std.mem.Allocator) !ServerboundLogin {
         var self: ServerboundLogin = undefined;
         self.protocol_version = try reader.readInt(u32, .big);
-        self.username = try String16.decode(reader, alloc);
+        self.username = try reader.readStringUtf16BE(alloc);
         self.map_seed = try reader.readInt(u64, .big);
         self.dimension = try reader.readByte();
         return self;
@@ -45,73 +31,53 @@ pub const ServerboundLogin = struct {
 
 pub const ClientboundLogin = struct {
     entity_id: u32,
-    username: String16,
+    username: []const u8,
     map_seed: u64,
     dimension: u8,
 
     pub fn encode(self: ClientboundLogin, writer: io.AnyWriter) !void {
         try writer.writeInt(u32, self.entity_id, .big);
-        try self.username.encode(writer);
+        try writeString16(self.username, writer);
         try writer.writeInt(u64, self.map_seed, .big);
         try writer.writeByte(self.dimension);
     }
 };
 
 pub const ServerboundHandshake = struct {
-    username: String16,
+    username: []const u8,
 
-    pub fn decode(reader: io.AnyReader, alloc: std.mem.Allocator) !ServerboundHandshake {
+    pub fn decode(reader: *StreamReader, alloc: std.mem.Allocator) !ServerboundHandshake {
         var self: ServerboundHandshake = undefined;
-        self.username = try String16.decode(reader, alloc);
+        self.username = try reader.readStringUtf16BE(alloc);
         return self;
     }
 };
 
 pub const ClientboundHandshake = struct {
-    connection_hash: String16,
+    connection_hash: []const u8,
 
     pub fn encode(self: ClientboundHandshake, writer: io.AnyWriter) !void {
-        try self.connection_hash.encode(writer);
+        try writeString16(self.connection_hash, writer);
     }
 };
 
 pub const ChatMessage = struct {
-    message: String16,
+    message: []const u8,
 
     pub fn encode(self: ChatMessage, writer: io.AnyWriter) !void {
-        try self.message.encode(writer);
+        try writeString16(self.message, writer);
     }
 
-    pub fn decode(reader: io.AnyReader, alloc: std.mem.Allocator) !ChatMessage {
+    pub fn decode(reader: *StreamReader, alloc: std.mem.Allocator) !ChatMessage {
         var self: ChatMessage = undefined;
-        self.message = try String16.decode(reader, alloc);
+        self.message = try reader.readStringUtf16BE(alloc);
         return self;
     }
 
-    pub fn fromUtfString(string: []const u8, alloc: std.mem.Allocator) !ChatMessage {
-        var value = try alloc.alloc(u16, string.len);
-        for (string, 0..) |char, i| {
-            value[i] = if (char == '&') 0x00A7 else char;
-            // if (char == '&') {
-            //
-            // } else {
-            //     value[i] = char;
-            // }
-        }
+    pub fn init(message: []const u8) ChatMessage {
         return ChatMessage{
-            .message = String16{
-                .length = @intCast(value.len),
-                .value = value,
-            }
+            .message = message,
         };
-    }
-
-    pub fn toUtfString(self: ChatMessage, alloc: std.mem.Allocator) ![]const u8 {
-        var string = try alloc.alloc(u8, self.message.length);
-        for (self.message.value, 0..) |char, i| {
-            string[i] = @truncate(char);
-        }
-        return string;
     }
 };
 
@@ -146,7 +112,7 @@ pub const ClientboundPacket = union(ClientboundPacketId) {
     chat_message: ChatMessage,
 };
 
-pub fn readPacket(reader: io.AnyReader, alloc: std.mem.Allocator) !ServerboundPacket {
+pub fn readPacket(reader: *StreamReader, alloc: std.mem.Allocator) !ServerboundPacket {
     const packet_id = try reader.readByte();
 
     return switch (packet_id) {
