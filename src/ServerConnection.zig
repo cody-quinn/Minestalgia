@@ -66,7 +66,4 @@ pub fn readMessage(self: *Self) !proto.ServerboundPacket {
 pub fn writeMessage(self: *Self, packet: proto.ClientboundPacket) !void {
     try proto.writePacket(self.clientbound_buffer.writer().any(), packet);
     try self.clientbound_buffer.flushBuffer(self.socket);
-    // const n = try posix.write(self.socket, self.clientbound_buffer);
-    // std.debug.print("Wrote {} bytes\n", .{n});
-    // self.write_buffer.items
 }

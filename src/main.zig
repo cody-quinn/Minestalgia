@@ -80,14 +80,3 @@ fn hacky_create_chunk_data(alloc: Allocator) !void {
     try std.compress.zlib.compress(ingress.reader(), egress.writer(), .{ .level = .default });
     chunk_data_compressed = try egress.toOwnedSlice();
 }
-
-fn printBytes(bytes: []const u8) void {
-    std.debug.print("Length: {}", .{bytes.len});
-    for (bytes, 0..) |b, i| {
-        if (i % 16 == 0) {
-            std.debug.print("\n{x:0>4}: ", .{i});
-        }
-        std.debug.print("{x:0>2} ", .{b});
-    }
-    std.debug.print("(EOF) \n", .{});
-}

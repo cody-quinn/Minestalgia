@@ -102,7 +102,7 @@ fn expandBuffer(self: *Self) !void {
     const new_size = self.buffer.len * 2;
     self.buffer = self.allocator.remap(self.buffer, new_size) orelse v: {
         const new_buffer = try self.allocator.alloc(u8, new_size);
-        @memcpy(new_buffer, self.buffer);
+        @memcpy(new_buffer[0..self.buffer.len], self.buffer);
         self.allocator.free(self.buffer);
         break :v new_buffer;
     };

@@ -86,11 +86,14 @@ pub fn run(self: *Self, address: net.Address) !void {
                     },
                     error.InvalidPacket => {
                         std.debug.print("Client {} sent invalid packet\n", .{client.address.getPort()});
+                        const nb = client.serverbound_buffer;
+                        printBytes(nb.buffer[nb.read_head..nb.write_head]);
                         self.removeClient(i);
                         i += 1;
                         continue;
                     },
                     error.EndOfStream => {
+                        i += 1;
                         continue;
                     },
                     else => {
@@ -258,6 +261,10 @@ pub fn run(self: *Self, address: net.Address) !void {
                                 .chat_message = proto.ChatMessage.init("&4Unknown command. Check /help")
                             });
                         }
+                    } else {
+                        for (self.connections[0..self.connected]) |*target| {
+                            try target.writeMessage(.{ .chat_message = .init(value) });
+                        }
                     }
                 }
             }
@@ -310,4 +317,15 @@ fn removeClient(self: *Self, index: usize) void {
 pub fn deinit(self: *Self) void {
     self.allocator.free(self.polls);
     self.allocator.free(self.connections);
+}
+
+fn printBytes(bytes: []const u8) void {
+    std.debug.print("Length: {}", .{bytes.len});
+    for (bytes, 0..) |b, i| {
+        if (i % 16 == 0) {
+            std.debug.print("\n{x:0>4}: ", .{i});
+        }
+        std.debug.print("{x:0>2} ", .{b});
+    }
+    std.debug.print("(EOF) \n", .{});
 }

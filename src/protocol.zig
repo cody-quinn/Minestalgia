@@ -145,6 +145,16 @@ pub const PlayerPositionAndLook = struct {
     }
 };
 
+pub const HoldingChange = struct {
+    slot: u16,
+
+    pub fn decode(reader: *StreamReader) !HoldingChange {
+        var self: HoldingChange = undefined;
+        self.slot = try reader.readInt(u16, .big);
+        return self;
+    }
+};
+
 pub const ServerboundPacket = union(enum) {
     keep_alive: KeepAlive,
     login: ServerboundLogin,
@@ -154,6 +164,7 @@ pub const ServerboundPacket = union(enum) {
     player_position: PlayerPosition,
     player_look: PlayerLook,
     player_position_and_look: PlayerPositionAndLook,
+    holding_change: HoldingChange,
 };
 
 pub const ClientboundPacketId = enum(u8) {
@@ -182,6 +193,7 @@ pub fn readPacket(reader: *StreamReader, alloc: std.mem.Allocator) !ServerboundP
         0x0B => .{ .player_position = try PlayerPosition.decode(reader) },
         0x0C => .{ .player_look = try PlayerLook.decode(reader) },
         0x0D => .{ .player_position_and_look = try PlayerPositionAndLook.decode(reader) },
+        0x10 => .{ .holding_change = try HoldingChange.decode(reader) },
         else => {
             std.debug.print("Read packet ID 0x{0X:0>2} ({0d})\n", .{packet_id});
             return error.InvalidPacket;
