@@ -29,7 +29,7 @@ pub fn init(allocator: Allocator, initial_capacity: usize) !Self {
     };
 }
 
-pub fn deinit(self: *Self) void {
+pub fn deinit(self: *const Self) void {
     self.allocator.free(self.buffer);
 }
 
@@ -58,9 +58,11 @@ pub fn flushBuffer(self: *Self, socket: posix.socket_t) !void {
     const initial_read_head = self.read_head;
     errdefer self.read_head = initial_read_head;
 
+    std.debug.print("WRITING {} BYTES\n", .{self.write_head - self.read_head});
+
     while (self.read_head < self.write_head) {
         const buffer_slice = self.buffer[self.read_head..self.write_head];
-        const length = try posix.write(socket, buffer_slice) catch |err| {
+        const length = posix.write(socket, buffer_slice) catch |err| {
             if (err == error.WouldBlock) {
                 return;
             }
@@ -90,9 +92,10 @@ fn isOptimized(self: *Self) bool {
 }
 
 fn optimizeBuffer(self: *Self) void {
-    const offset = @min(self.read_head, self.write_head);
-    const end = @max(self.read_head, self.write_head);
-    std.mem.copyForwards(u8, self.buffer, self.buffer[offset..end]);
+    std.debug.assert(self.read_head <= self.write_head);
+    std.mem.copyForwards(u8, self.buffer, self.buffer[self.read_head .. self.write_head]);
+    self.write_head -= self.read_head;
+    self.read_head = 0;
 }
 
 fn expandBuffer(self: *Self) !void {
@@ -103,4 +106,20 @@ fn expandBuffer(self: *Self) !void {
         self.allocator.free(self.buffer);
         break :v new_buffer;
     };
+}
+
+// Writer stuff
+// TODO: Replace
+
+const Writer = std.io.Writer(*Self, anyerror, writeFn);
+
+fn writeFn(self: *Self, data: []const u8) !usize {
+    try self.ensureWritable(data.len);
+    @memcpy(self.buffer[self.write_head..self.write_head + data.len], data);
+    self.write_head += data.len;
+    return data.len;
+}
+
+pub fn writer(self: *Self) Writer {
+    return Writer{ .context = self };
 }

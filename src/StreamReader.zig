@@ -8,12 +8,12 @@ const Self = @This();
 pub const Error = error { EndOfStream };
 pub const ErrorAllocating = Error || std.mem.Allocator.Error; // For functions that can allocate memory
 
-stream: []const u8,
+buffer: []const u8,
 head: usize,
 
-pub fn init(stream: []const u8) Self {
+pub fn fromBuffer(buffer: []const u8) Self {
     return Self{
-        .stream = stream,
+        .buffer = buffer,
         .head = 0,
     };
 }
@@ -23,21 +23,21 @@ pub fn readByte(self: *Self) Error!u8 {
 }
 
 pub fn readInt(self: *Self, comptime T: type, endian: std.builtin.Endian) Error!T {
-    if (self.head + @sizeOf(T) > self.stream.len) {
+    if (self.head + @sizeOf(T) > self.buffer.len) {
         return Error.EndOfStream;
     }
 
-    const value = mem.readInt(T, @constCast(@ptrCast(self.stream[self.head .. self.head + @sizeOf(T)])), endian);
+    const value = mem.readInt(T, @constCast(@ptrCast(self.buffer[self.head .. self.head + @sizeOf(T)])), endian);
     self.head += @sizeOf(T);
     return value;
 }
 
 pub fn readFloat(self: *Self, comptime T: type) Error!T {
-    if (self.head + @sizeOf(T) > self.stream.len) {
+    if (self.head + @sizeOf(T) > self.buffer.len) {
         return Error.EndOfStream;
     }
 
-    const value: T = @as(*T, @constCast(@ptrCast(&self.stream[self.head .. self.head + @sizeOf(T)]))).*;
+    const value: T = @as(*T, @constCast(@ptrCast(&self.buffer[self.head .. self.head + @sizeOf(T)]))).*;
     self.head += @sizeOf(T);
     return value;
 }
@@ -51,13 +51,13 @@ pub fn readStringUtf8(self: *Self, alloc: mem.Allocator) ErrorAllocating![]const
     const length = try self.readInt(u16, .big);
     errdefer self.head -= @sizeOf(u16);
 
-    if (self.head + length > self.stream.len) {
+    if (self.head + length > self.buffer.len) {
         return Error.EndOfStream;
     }
 
     const string = try alloc.alloc(u8, length);
     errdefer alloc.free(string);
-    @memcpy(string, self.stream[self.head .. self.head + length]);
+    @memcpy(string, self.buffer[self.head .. self.head + length]);
     return string;
 }
 
@@ -67,7 +67,7 @@ pub fn readStringUtf16BE(self: *Self, alloc: mem.Allocator) ErrorAllocating![]co
     errdefer self.head = headReset;
     const sourceLength = try self.readInt(u16, .big);
 
-    if (self.head + sourceLength * 2 > self.stream.len) {
+    if (self.head + sourceLength * 2 > self.buffer.len) {
         return Error.EndOfStream;
     }
 
@@ -108,7 +108,7 @@ pub fn readStringUtf16BE(self: *Self, alloc: mem.Allocator) ErrorAllocating![]co
 }
 
 pub fn seek(self: *Self, pos: usize) Error!void {
-    if (pos >= self.stream.len) {
+    if (pos >= self.buffer.len) {
         return Error.EndOfStream;
     }
 

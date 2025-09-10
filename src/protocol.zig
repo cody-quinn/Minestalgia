@@ -173,8 +173,6 @@ pub const ClientboundPacket = union(ClientboundPacketId) {
 pub fn readPacket(reader: *StreamReader, alloc: std.mem.Allocator) !ServerboundPacket {
     const packet_id = try reader.readByte();
 
-    std.debug.print("Read packet ID 0x{0X:0>2} ({0d})\n", .{packet_id});
-
     return switch (packet_id) {
         0x00 => .{ .keep_alive = .{} },
         0x01 => .{ .login = try ServerboundLogin.decode(reader, alloc) },
@@ -184,7 +182,10 @@ pub fn readPacket(reader: *StreamReader, alloc: std.mem.Allocator) !ServerboundP
         0x0B => .{ .player_position = try PlayerPosition.decode(reader) },
         0x0C => .{ .player_look = try PlayerLook.decode(reader) },
         0x0D => .{ .player_position_and_look = try PlayerPositionAndLook.decode(reader) },
-        else => error.InvalidPacket,
+        else => {
+            std.debug.print("Read packet ID 0x{0X:0>2} ({0d})\n", .{packet_id});
+            return error.InvalidPacket;
+        },
     };
 }
 

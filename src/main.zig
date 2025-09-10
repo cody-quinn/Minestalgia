@@ -16,55 +16,6 @@ const proto = @import("protocol.zig");
 
 const BUFFER_SIZE = 16_384;
 
-pub const PacketBuffer = struct {
-    data: [BUFFER_SIZE]u8 = undefined,
-    items: []u8 = &[_]u8{},
-    pos: usize = 0,
-
-    const Writer = std.io.Writer(*PacketBuffer, anyerror, write);
-    const Reader = std.io.Reader(*PacketBuffer, anyerror, read);
-
-    pub fn write(self: *PacketBuffer, data: []const u8) !usize {
-        if (self.items.len + data.len > self.data.len) {
-            return error.EndOfBuffer;
-        }
-
-        @memcpy(self.data[self.items.len..][0..data.len], data);
-        self.items = self.data[0 .. self.items.len + data.len];
-        return data.len;
-    }
-
-    pub fn written(self: *PacketBuffer, amount: usize) void {
-        self.items = self.data[0 .. self.items.len + amount];
-    }
-
-    pub fn writer(self: *PacketBuffer) Writer {
-        return .{ .context = self };
-    }
-
-    pub fn read(self: *PacketBuffer, buffer: []u8) !usize {
-        const remainingBytes = self.items.len - self.pos;
-        const len = @min(remainingBytes, buffer.len);
-
-        if (len < 0) {
-            return error.EndOfBuffer;
-        }
-
-        @memcpy(buffer[0..len], self.items[self.pos .. self.pos + len]);
-        self.pos += len;
-        return len;
-    }
-
-    pub fn reader(self: *PacketBuffer) Reader {
-        return .{ .context = self };
-    }
-
-    pub fn reset(self: *PacketBuffer) void {
-        self.items = &[_]u8{};
-        self.pos = 0;
-    }
-};
-
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -99,41 +50,6 @@ fn readMessage(socket: posix.socket_t, buf: []u8) ![]u8 {
     }
 }
 
-fn writeMessage(allocator: Allocator, socket: posix.socket_t, messages: []const []const u8) !void {
-    var vec = try allocator.alloc(posix.iovec_const, messages.len + 1);
-    for (messages, 0..) |msg, i| {
-        vec[i] = .{ .len = msg.len, .base = msg.ptr };
-    }
-    vec[messages.len] = .{ .len = 1, .base = &[1]u8{0} };
-
-    try writeAllVectorized(socket, vec);
-}
-
-fn writeAllVectorized(socket: posix.socket_t, vec: []posix.iovec_const) !void {
-    var i: usize = 0;
-    while (true) {
-        var n = try posix.writev(socket, vec[i..]);
-        while (n >= vec[i].len) {
-            n -= vec[i].len;
-            i += 1;
-            if (i >= vec.len) return;
-        }
-        vec[i].base += n;
-        vec[i].len -= n;
-    }
-}
-
-fn printBytes(bytes: []const u8) void {
-    std.debug.print("Length: {}", .{bytes.len});
-    for (bytes, 0..) |b, i| {
-        if (i % 16 == 0) {
-            std.debug.print("\n{x:0>4}: ", .{i});
-        }
-        std.debug.print("{x:0>2} ", .{b});
-    }
-    std.debug.print("(EOF) \n", .{});
-}
-
 // ----
 
 var chunk_data: [81_920]u8 = undefined;
@@ -165,3 +81,13 @@ fn hacky_create_chunk_data(alloc: Allocator) !void {
     chunk_data_compressed = try egress.toOwnedSlice();
 }
 
+fn printBytes(bytes: []const u8) void {
+    std.debug.print("Length: {}", .{bytes.len});
+    for (bytes, 0..) |b, i| {
+        if (i % 16 == 0) {
+            std.debug.print("\n{x:0>4}: ", .{i});
+        }
+        std.debug.print("{x:0>2} ", .{b});
+    }
+    std.debug.print("(EOF) \n", .{});
+}

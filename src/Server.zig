@@ -9,7 +9,6 @@ const posix = std.posix;
 
 const Allocator = mem.Allocator;
 
-const PacketBuffer = @import("main.zig").PacketBuffer;
 const StreamReader = @import("StreamReader.zig");
 const ServerConnection = @import("ServerConnection.zig");
 
@@ -102,8 +101,6 @@ pub fn run(self: *Self, address: net.Address) !void {
                         continue;
                     },
                 };
-
-                std.debug.print("{}\n", .{packet});
 
                 if (packet == .keep_alive) {
                     _ = try posix.write(client.socket, &.{0x00});
