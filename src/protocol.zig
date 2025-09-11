@@ -315,6 +315,9 @@ pub fn writePacket(writer: io.AnyWriter, packet: Packet) !void {
         .login => try packet.login.encode(writer),
         .handshake => try packet.handshake.encode(writer),
         .chat_message => try packet.chat_message.encode(writer),
+        .time_update => try packet.time_update.encode(writer),
+        .entity_equipment => try packet.entity_equipment.encode(writer),
+        .spawn_position => try packet.spawn_position.encode(writer),
         .player_position_and_look => try packet.player_position_and_look.encode(writer),
         else => {
             std.debug.print("Write packet ID 0x{0X:0>2} ({0d})\n", .{@intFromEnum(packet)});

@@ -114,35 +114,22 @@ pub fn run(self: *Self, address: net.Address) !void {
                 }
 
                 if (packet == .login) {
-                    _ = try posix.write(client.socket, &.{
-                        0x01,
-                        0x00, 0x00, 0x00, 0x0F, // id
-                        0x00, 0x00,//
-                        0x00,          //
-                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // seed
-                        0x00, // level
-                    });
+                    try client.writeMessage(.{ .login = .{
+                        .data = 0x0F,
+                        .username = &.{},
+                        .map_seed = 0,
+                        .dimension = 0,
+                    } });
 
-                    // Spawn position
-                    _ = try posix.write(client.socket, &.{
-                        0x06,
-                        0x00, 0x00, 0x00, 120, // x
-                        0x00, 0x00, 0x00, 64, // y
-                        0x00, 0x00, 0x00, 120, // z
-                    });
+                    try client.writeMessage(.{ .spawn_position = .{
+                        .x = 120,
+                        .y = 64,
+                        .z = 120,
+                    } });
 
-                    // Time update
-                    _ = try posix.write(client.socket, &.{
-                        0x04,
-                        0x00,
-                        0x00,
-                        0x00,
-                        0x00,
-                        0x00,
-                        0x00,
-                        0x18,
-                        0x00,
-                    });
+                    try client.writeMessage(.{ .time_update = .{
+                        .time = 6_000,
+                    } });
 
                     // Update health
                     _ = try posix.write(client.socket, &.{
@@ -161,7 +148,7 @@ pub fn run(self: *Self, address: net.Address) !void {
                     for (1..45) |j| {
                         const k: u8 = @intCast(j);
                         _ = try posix.write(client.socket, &.{
-                            0x00, k, k, 0x00, 0x00
+                            0x00, k, k, 0x00, 0x00,
                         });
                     }
 
@@ -184,26 +171,25 @@ pub fn run(self: *Self, address: net.Address) !void {
                                 0x00, 0x00, // y
                                 0x00, 0x00, 0x00, @as(u8, @intCast(y)) * 16, // z
                                 15, 127, 15, // size
-                                @truncate(chunk_data_compressed.len >> 24),
+                                @truncate(chunk_data_compressed.len >> 24), // chunk data
                                 @truncate(chunk_data_compressed.len >> 16),
                                 @truncate(chunk_data_compressed.len >> 8),
                                 @truncate(chunk_data_compressed.len),
                             });
                             const b = try posix.write(client.socket, chunk_data_compressed);
-                            std.debug.print("{} - {} - {}\n", .{chunk_data_compressed.len, a, b});
+                            std.debug.print("{} - {} - {}\n", .{ chunk_data_compressed.len, a, b });
                         }
                     }
 
-                    _ = try posix.write(client.socket, &.{
-                        0x0D,
-                        0x40, 0x60, 0xE0, 0x00, 0x00, 0x00, 0x00, 0x00, // x
-                        0x40, 0x52, 0x53, 0x33, 0x33, 0x33, 0x33, 0x33, // stance
-                        0x40, 0x52, 0x53, 0x33, 0x33, 0x33, 0x33, 0x33, // y
-                        0x40, 0x60, 0xE0, 0x00, 0x00, 0x00, 0x00, 0x00, // z
-                        0x00, 0x00, 0x00, 0x00, // yaw
-                        0x00, 0x00, 0x00, 0x00, // pitch
-                        0x00,
-                    });
+                    try client.writeMessage(.{ .player_position_and_look = .{
+                        .x = 60.0,
+                        .y = 32.0,
+                        .z = 60.0,
+                        .stance = 33.5,
+                        .yaw = 0.0,
+                        .pitch = 0.0,
+                        .on_ground = false,
+                    } });
 
                     try client.writeMessage(.{
                         .chat_message = .ofString("Hello from Zig!"),
@@ -219,37 +205,32 @@ pub fn run(self: *Self, address: net.Address) !void {
                         const command = parts.next() orelse "help";
 
                         if (mem.eql(u8, command, "help")) {
-                            inline for (.{
-                                "--- Help ---",
-                                "wowwie"
-                            }) |msg| {
-                                try client.writeMessage(.{
-                                    .chat_message = .ofString(msg)
-                                });
+                            inline for (.{ "--- Help ---", "wowwie" }) |msg| {
+                                try client.writeMessage(.{ .chat_message = .ofString(msg) });
                             }
                         } else if (mem.startsWith(u8, command, "utf")) {
                             var from: u16 = 0;
 
-                            var msg: [18]u8 = .{'&', 'a', 'F', 'r', 'o', 'm', ':', ' ', '0', 'x'} ++ [_]u8{' '} ** 8;
-                            _ = std.fmt.bufPrintIntToSlice(msg[10..18], from, 16, .upper, .{.alignment = .left});
+                            var msg: [18]u8 = .{ '&', 'a', 'F', 'r', 'o', 'm', ':', ' ', '0', 'x' } ++ [_]u8{' '} ** 8;
+                            _ = std.fmt.bufPrintIntToSlice(msg[10..18], from, 16, .upper, .{ .alignment = .left });
                             try client.writeMessage(.{
                                 .chat_message = .ofString(&msg),
                             });
 
-                            msg = .{'&', 'a', 'T', 'o', ':', ' ', '0', 'x'} ++ [_]u8{' '} ** 10;
-                            _ = std.fmt.bufPrintIntToSlice(msg[8..16], from + 16 * 16, 16, .upper, .{.alignment = .left});
+                            msg = .{ '&', 'a', 'T', 'o', ':', ' ', '0', 'x' } ++ [_]u8{' '} ** 10;
+                            _ = std.fmt.bufPrintIntToSlice(msg[8..16], from + 16 * 16, 16, .upper, .{ .alignment = .left });
                             try client.writeMessage(.{
-                                .chat_message = proto.ChatMessage.ofString(&msg),
+                                .chat_message = .ofString(&msg),
                             });
 
                             for (0..16) |offset| {
                                 const start: u8 = @intCast(from + offset * 16);
                                 try client.writeMessage(.{
                                     .chat_message = .{
-                                        .message = &[16]u8 {
-                                            start, start + 1, start + 2, start + 3,
-                                            start + 4, start + 5, start + 6, start + 7,
-                                            start + 8, start + 9, start + 10, start + 11,
+                                        .message = &[16]u8{
+                                            start,      start + 1,  start + 2,  start + 3,
+                                            start + 4,  start + 5,  start + 6,  start + 7,
+                                            start + 8,  start + 9,  start + 10, start + 11,
                                             start + 12, start + 13, start + 14, start + 15,
                                         },
                                     },
@@ -258,7 +239,7 @@ pub fn run(self: *Self, address: net.Address) !void {
                             from += 16 * 16;
                         } else {
                             try client.writeMessage(.{
-                                .chat_message = proto.ChatMessage.ofString("&4Unknown command. Check /help")
+                                .chat_message = .ofString("&4Unknown command. Check /help"),
                             });
                         }
                     } else {
