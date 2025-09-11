@@ -1,3 +1,6 @@
+// Minecraft Beta 1.7.3 Packets Info:
+// - https://minecraft.wiki/w/Minecraft_Wiki:Projects/wiki.vg_merge/Protocol?oldid=2769763
+
 const std = @import("std");
 
 const StreamReader = @import("StreamReader.zig");
@@ -12,23 +15,10 @@ fn writeString16(str: []const u8, writer: io.AnyWriter) !void {
 
 // Packets
 pub const KeepAlive = struct {
-    pub const Name = "keep_alive";
     pub const ID = 0x00;
-
-    pub fn decode(reader: *StreamReader) !KeepAlive {
-        // noop
-        _ = reader;
-    }
-
-    pub fn encode(self: KeepAlive, writer: io.AnyWriter) !void {
-        // noop
-        _ = self;
-        _ = writer;
-    }
 };
 
 pub const Login = struct {
-    pub const Name = "login";
     pub const ID = 0x01;
 
     /// - Serverbound: Protocol Version
@@ -39,12 +29,12 @@ pub const Login = struct {
     dimension: u8,
 
     pub fn decode(reader: *StreamReader, alloc: std.mem.Allocator) !Login {
-        var self: Login = undefined;
-        self.data = try reader.readInt(u32, .big);
-        self.username = try reader.readStringUtf16BE(alloc);
-        self.map_seed = try reader.readInt(u64, .big);
-        self.dimension = try reader.readByte();
-        return self;
+        return Login{
+            .data = try reader.readInt(u32, .big),
+            .username = try reader.readStringUtf16BE(alloc),
+            .map_seed = try reader.readInt(u64, .big),
+            .dimension = try reader.readByte(),
+        };
     }
 
     pub fn encode(self: Login, writer: io.AnyWriter) !void {
@@ -56,7 +46,6 @@ pub const Login = struct {
 };
 
 pub const Handshake = struct {
-    pub const Name = "handshake";
     pub const ID = 0x02;
 
     /// - Serverbound: Username
@@ -64,9 +53,9 @@ pub const Handshake = struct {
     data: []const u8,
 
     pub fn decode(reader: *StreamReader, alloc: std.mem.Allocator) !Handshake {
-        var self: Handshake = undefined;
-        self.data = try reader.readStringUtf16BE(alloc);
-        return self;
+        return Handshake{
+            .data = try reader.readStringUtf16BE(alloc),
+        };
     }
 
     pub fn encode(self: Handshake, writer: io.AnyWriter) !void {
@@ -75,7 +64,6 @@ pub const Handshake = struct {
 };
 
 pub const ChatMessage = struct {
-    pub const Name = "chat_message";
     pub const ID = 0x03;
 
     message: []const u8,
@@ -86,32 +74,98 @@ pub const ChatMessage = struct {
         };
     }
 
+    pub fn decode(reader: *StreamReader, alloc: std.mem.Allocator) !ChatMessage {
+        return ChatMessage{
+            .message = try reader.readStringUtf16BE(alloc),
+        };
+    }
+
     pub fn encode(self: ChatMessage, writer: io.AnyWriter) !void {
         try writeString16(self.message, writer);
     }
+};
 
-    pub fn decode(reader: *StreamReader, alloc: std.mem.Allocator) !ChatMessage {
-        var self: ChatMessage = undefined;
-        self.message = try reader.readStringUtf16BE(alloc);
-        return self;
+pub const TimeUpdate = struct {
+    pub const ID = 0x04;
+
+    time: u64,
+
+    pub fn decode(reader: *StreamReader) !TimeUpdate {
+        return TimeUpdate{
+            .time = try reader.readInt(u64, .big),
+        };
+    }
+
+    pub fn encode(self: TimeUpdate, writer: io.AnyWriter) !void {
+        try writer.writeInt(u64, self.time, .big);
+    }
+};
+
+pub const EntityEquipment = struct {
+    pub const ID = 0x05;
+
+    entity_id: u32,
+    /// 0. Held
+    /// 1. Armor
+    /// 2. Armor
+    /// 3. Armor
+    /// 4. Armor
+    slot: u16,
+    item_id: u16,
+    unknown: u16,
+
+    pub fn decode(reader: *StreamReader) !EntityEquipment {
+        return EntityEquipment{
+            .entity_id = try reader.readInt(u32, .big),
+            .slot = try reader.readInt(u16, .big),
+            .item_id = try reader.readInt(u16, .big),
+            .unknown = try reader.readInt(u16, .big),
+        };
+    }
+
+    pub fn encode(self: EntityEquipment, writer: io.AnyWriter) !void {
+        try writer.writeInt(u32, self.entity_id, .big);
+        try writer.writeInt(u16, self.slot, .big);
+        try writer.writeInt(u16, self.item_id, .big);
+        try writer.writeInt(u16, self.unknown, .big);
+    }
+};
+
+pub const SpawnPosition = struct {
+    pub const ID = 0x06;
+
+    x: i32,
+    y: i32,
+    z: i32,
+
+    pub fn decode(reader: *StreamReader) !SpawnPosition {
+        return SpawnPosition{
+            .x = try reader.readInt(i32, .big),
+            .y = try reader.readInt(i32, .big),
+            .z = try reader.readInt(i32, .big),
+        };
+    }
+
+    pub fn encode(self: SpawnPosition, writer: io.AnyWriter) !void {
+        try writer.writeInt(i32, self.x, .big);
+        try writer.writeInt(i32, self.y, .big);
+        try writer.writeInt(i32, self.z, .big);
     }
 };
 
 pub const PlayerOnGround = struct {
-    pub const Name = "player_on_ground";
     pub const ID = 0x0A;
 
     on_ground: bool,
 
     pub fn decode(reader: *StreamReader) !PlayerOnGround {
-        var self: PlayerOnGround = undefined;
-        self.on_ground = try reader.readBoolean();
-        return self;
+        return PlayerOnGround{
+            .on_ground = try reader.readBoolean(),
+        };
     }
 };
 
 pub const PlayerPosition = struct {
-    pub const Name = "player_position";
     pub const ID = 0x0B;
 
     x: f64,
@@ -121,18 +175,17 @@ pub const PlayerPosition = struct {
     on_ground: bool,
 
     pub fn decode(reader: *StreamReader) !PlayerPosition {
-        var self: PlayerPosition = undefined;
-        self.x = try reader.readFloat(f64);
-        self.y = try reader.readFloat(f64);
-        self.stance = try reader.readFloat(f64);
-        self.z = try reader.readFloat(f64);
-        self.on_ground = try reader.readBoolean();
-        return self;
+        return PlayerPosition{
+            .x = try reader.readFloat(f64),
+            .y = try reader.readFloat(f64),
+            .stance = try reader.readFloat(f64),
+            .z = try reader.readFloat(f64),
+            .on_ground = try reader.readBoolean(),
+        };
     }
 };
 
 pub const PlayerLook = struct {
-    pub const Name = "player_look";
     pub const ID = 0x0C;
 
     yaw: f32,
@@ -140,100 +193,89 @@ pub const PlayerLook = struct {
     on_ground: bool,
 
     pub fn decode(reader: *StreamReader) !PlayerLook {
-        var self: PlayerLook = undefined;
-        self.yaw = try reader.readFloat(f32);
-        self.pitch = try reader.readFloat(f32);
-        self.on_ground = try reader.readBoolean();
-        return self;
+        return PlayerLook{
+            .yaw = try reader.readFloat(f32),
+            .pitch = try reader.readFloat(f32),
+            .on_ground = try reader.readBoolean(),
+        };
     }
 };
 
 pub const PlayerPositionAndLook = struct {
-    pub const Name = "player_position_and_look";
     pub const ID = 0x0D;
 
     x: f64,
     y: f64,
-    stance: f64,
     z: f64,
+    stance: f64,
     yaw: f32,
     pitch: f32,
     on_ground: bool,
 
     pub fn decode(reader: *StreamReader) !PlayerPositionAndLook {
-        var self: PlayerPositionAndLook = undefined;
-        self.x = try reader.readFloat(f64);
-        self.y = try reader.readFloat(f64);
-        self.stance = try reader.readFloat(f64);
-        self.z = try reader.readFloat(f64);
-        self.yaw = try reader.readFloat(f32);
-        self.pitch = try reader.readFloat(f32);
-        self.on_ground = try reader.readBoolean();
-        return self;
+        return PlayerPositionAndLook{
+            .x = try reader.readFloat(f64),
+            .y = try reader.readFloat(f64),
+            .stance = try reader.readFloat(f64),
+            .z = try reader.readFloat(f64),
+            .yaw = try reader.readFloat(f32),
+            .pitch = try reader.readFloat(f32),
+            .on_ground = try reader.readBoolean(),
+        };
+    }
+
+    pub fn encode(self: PlayerPositionAndLook, writer: io.AnyWriter) !void {
+        try writer.writeInt(u64, @bitCast(self.x), .big);
+        // Position of stance is different when writing than from reading
+        try writer.writeInt(u64, @bitCast(self.stance), .big);
+        try writer.writeInt(u64, @bitCast(self.y), .big);
+        try writer.writeInt(u64, @bitCast(self.z), .big);
+        try writer.writeInt(u32, @bitCast(self.yaw), .big);
+        try writer.writeInt(u32, @bitCast(self.pitch), .big);
+        try writer.writeByte(@intFromBool(self.on_ground));
     }
 };
 
 pub const HoldingChange = struct {
-    pub const Name = "holding_change";
     pub const ID = 0x10;
 
     slot: u16,
 
     pub fn decode(reader: *StreamReader) !HoldingChange {
-        var self: HoldingChange = undefined;
-        self.slot = try reader.readInt(u16, .big);
-        return self;
-    }
-};
-
-// Silly comptime stuff :3
-const packets = [_]type{
-    KeepAlive,
-    Login,
-    Handshake,
-    ChatMessage,
-    PlayerOnGround,
-    PlayerPosition,
-    PlayerLook,
-    PlayerPositionAndLook,
-    HoldingChange,
-};
-
-pub const PacketId: type = t: {
-    var fields: [packets.len]std.builtin.Type.EnumField = undefined;
-
-    for (packets, 0..) |packet, i| {
-        fields[i] = std.builtin.Type.EnumField{
-            .name = packet.Name,
-            .value = packet.ID,
+        return HoldingChange{
+            .slot = try reader.readInt(u16, .big),
         };
     }
-
-    break :t @Type(.{ .@"enum" = std.builtin.Type.Enum{
-        .decls = &.{},
-        .fields = &fields,
-        .tag_type = u8,
-        .is_exhaustive = true,
-    } });
 };
 
-pub const Packet: type = t: {
-    var fields: [packets.len]std.builtin.Type.UnionField = undefined;
+pub const PacketId = enum(u8) {
+    keep_alive = KeepAlive.ID,
+    login = Login.ID,
+    handshake = Handshake.ID,
+    chat_message = ChatMessage.ID,
+    time_update = TimeUpdate.ID,
+    entity_equipment = EntityEquipment.ID,
+    spawn_position = SpawnPosition.ID,
+    player_on_ground = PlayerOnGround.ID,
+    player_position = PlayerPosition.ID,
+    player_look = PlayerLook.ID,
+    player_position_and_look = PlayerPositionAndLook.ID,
+    holding_change = HoldingChange.ID,
+};
 
-    for (packets, 0..) |packet, i| {
-        fields[i] = std.builtin.Type.UnionField{
-            .alignment = 0,
-            .name = packet.Name,
-            .type = packet,
-        };
-    }
-
-    break :t @Type(.{ .@"union" = std.builtin.Type.Union{
-        .decls = &.{},
-        .fields = &fields,
-        .layout = .auto,
-        .tag_type = PacketId,
-    } });
+pub const Packet = union(PacketId) {
+    keep_alive: KeepAlive,
+    login: Login,
+    handshake: Handshake,
+    chat_message: ChatMessage,
+    time_update: TimeUpdate,
+    entity_equipment: EntityEquipment,
+    spawn_position: SpawnPosition,
+    player_on_ground: PlayerOnGround,
+    player_position: PlayerPosition,
+    player_look: PlayerLook,
+    player_position_and_look: PlayerPositionAndLook,
+    holding_change: HoldingChange,
 };
 
 comptime {
@@ -246,15 +288,18 @@ pub fn readPacket(reader: *StreamReader, alloc: std.mem.Allocator) !Packet {
     const packet_id = try reader.readByte();
 
     return switch (packet_id) {
-        0x00 => .{ .keep_alive = .{} },
-        0x01 => .{ .login = try Login.decode(reader, alloc) },
-        0x02 => .{ .handshake = try Handshake.decode(reader, alloc) },
-        0x03 => .{ .chat_message = try ChatMessage.decode(reader, alloc) },
-        0x0A => .{ .player_on_ground = try PlayerOnGround.decode(reader) },
-        0x0B => .{ .player_position = try PlayerPosition.decode(reader) },
-        0x0C => .{ .player_look = try PlayerLook.decode(reader) },
-        0x0D => .{ .player_position_and_look = try PlayerPositionAndLook.decode(reader) },
-        0x10 => .{ .holding_change = try HoldingChange.decode(reader) },
+        KeepAlive.ID => .{ .keep_alive = .{} },
+        Login.ID => .{ .login = try Login.decode(reader, alloc) },
+        Handshake.ID => .{ .handshake = try Handshake.decode(reader, alloc) },
+        ChatMessage.ID => .{ .chat_message = try ChatMessage.decode(reader, alloc) },
+        TimeUpdate.ID => .{ .time_update = try TimeUpdate.decode(reader) },
+        EntityEquipment.ID => .{ .entity_equipment = try EntityEquipment.decode(reader) },
+        SpawnPosition.ID => .{ .spawn_position = try SpawnPosition.decode(reader) },
+        PlayerOnGround.ID => .{ .player_on_ground = try PlayerOnGround.decode(reader) },
+        PlayerPosition.ID => .{ .player_position = try PlayerPosition.decode(reader) },
+        PlayerLook.ID => .{ .player_look = try PlayerLook.decode(reader) },
+        PlayerPositionAndLook.ID => .{ .player_position_and_look = try PlayerPositionAndLook.decode(reader) },
+        HoldingChange.ID => .{ .holding_change = try HoldingChange.decode(reader) },
         else => {
             std.debug.print("Read packet ID 0x{0X:0>2} ({0d})\n", .{packet_id});
             return error.InvalidPacket;
@@ -262,13 +307,18 @@ pub fn readPacket(reader: *StreamReader, alloc: std.mem.Allocator) !Packet {
     };
 }
 
-pub fn writePacket(writer: io.AnyWriter, anyPacket: Packet) !void {
-    try writer.writeByte(@intFromEnum(anyPacket));
-    switch (anyPacket) {
-        inline else => |packet| {
-            if (@hasDecl(@TypeOf(packet), "encode")) {
-                try packet.encode(writer);
-            }
+pub fn writePacket(writer: io.AnyWriter, packet: Packet) !void {
+    try writer.writeByte(@intFromEnum(packet));
+
+    switch (packet) {
+        .keep_alive => {},
+        .login => try packet.login.encode(writer),
+        .handshake => try packet.handshake.encode(writer),
+        .chat_message => try packet.chat_message.encode(writer),
+        .player_position_and_look => try packet.player_position_and_look.encode(writer),
+        else => {
+            std.debug.print("Write packet ID 0x{0X:0>2} ({0d})\n", .{@intFromEnum(packet)});
+            return error.InvalidPacket;
         },
     }
 }
