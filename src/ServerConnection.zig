@@ -50,7 +50,7 @@ pub fn deinit(self: *Self) void {
     self.clientbound_buffer.deinit();
 }
 
-pub fn readMessage(self: *Self) !proto.ServerboundPacket {
+pub fn readMessage(self: *Self) !proto.Packet {
     try self.serverbound_buffer.fillBuffer(self.socket);
 
     const buffer_slice = self.serverbound_buffer.buffer[self.serverbound_buffer.read_head..self.serverbound_buffer.write_head];
@@ -63,7 +63,7 @@ pub fn readMessage(self: *Self) !proto.ServerboundPacket {
     return packet;
 }
 
-pub fn writeMessage(self: *Self, packet: proto.ClientboundPacket) !void {
+pub fn writeMessage(self: *Self, packet: proto.Packet) !void {
     try proto.writePacket(self.clientbound_buffer.writer().any(), packet);
     try self.clientbound_buffer.flushBuffer(self.socket);
 }

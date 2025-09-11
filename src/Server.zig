@@ -206,7 +206,7 @@ pub fn run(self: *Self, address: net.Address) !void {
                     });
 
                     try client.writeMessage(.{
-                        .chat_message = proto.ChatMessage.init("Hello from Zig!"),
+                        .chat_message = .ofString("Hello from Zig!"),
                     });
                 }
 
@@ -224,7 +224,7 @@ pub fn run(self: *Self, address: net.Address) !void {
                                 "wowwie"
                             }) |msg| {
                                 try client.writeMessage(.{
-                                    .chat_message = proto.ChatMessage.init(msg)
+                                    .chat_message = .ofString(msg)
                                 });
                             }
                         } else if (mem.startsWith(u8, command, "utf")) {
@@ -233,13 +233,13 @@ pub fn run(self: *Self, address: net.Address) !void {
                             var msg: [18]u8 = .{'&', 'a', 'F', 'r', 'o', 'm', ':', ' ', '0', 'x'} ++ [_]u8{' '} ** 8;
                             _ = std.fmt.bufPrintIntToSlice(msg[10..18], from, 16, .upper, .{.alignment = .left});
                             try client.writeMessage(.{
-                                .chat_message = proto.ChatMessage.init(&msg),
+                                .chat_message = .ofString(&msg),
                             });
 
                             msg = .{'&', 'a', 'T', 'o', ':', ' ', '0', 'x'} ++ [_]u8{' '} ** 10;
                             _ = std.fmt.bufPrintIntToSlice(msg[8..16], from + 16 * 16, 16, .upper, .{.alignment = .left});
                             try client.writeMessage(.{
-                                .chat_message = proto.ChatMessage.init(&msg),
+                                .chat_message = proto.ChatMessage.ofString(&msg),
                             });
 
                             for (0..16) |offset| {
@@ -258,12 +258,12 @@ pub fn run(self: *Self, address: net.Address) !void {
                             from += 16 * 16;
                         } else {
                             try client.writeMessage(.{
-                                .chat_message = proto.ChatMessage.init("&4Unknown command. Check /help")
+                                .chat_message = proto.ChatMessage.ofString("&4Unknown command. Check /help")
                             });
                         }
                     } else {
                         for (self.connections[0..self.connected]) |*target| {
-                            try target.writeMessage(.{ .chat_message = .init(value) });
+                            try target.writeMessage(.{ .chat_message = .ofString(value) });
                         }
                     }
                 }
