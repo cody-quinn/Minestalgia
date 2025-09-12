@@ -9,6 +9,7 @@ const posix = std.posix;
 
 const Allocator = mem.Allocator;
 
+const Player = @import("Player.zig");
 const StreamReader = @import("StreamReader.zig");
 const NetworkBuffer = @import("NetworkBuffer.zig");
 
@@ -22,6 +23,8 @@ is_connected: bool,
 
 serverbound_buffer: NetworkBuffer,
 clientbound_buffer: NetworkBuffer,
+
+player: ?*Player = null,
 
 pub fn init(allocator: Allocator, socket: posix.socket_t, address: net.Address) !Self {
     const serverbound_buffer = try NetworkBuffer.init(allocator, BUFFER_SIZE);

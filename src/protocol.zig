@@ -248,6 +248,74 @@ pub const HoldingChange = struct {
     }
 };
 
+pub const NamedEntitySpawn = struct {
+    pub const ID = 0x14;
+
+    entity_id: u32,
+    username: []const u8,
+    x: i32,
+    y: i32,
+    z: i32,
+    yaw: u8,
+    pitch: u8,
+    current_item: u16,
+
+    pub fn decode(reader: *StreamReader, alloc: std.mem.Allocator) !NamedEntitySpawn {
+        return NamedEntitySpawn{
+            .entity_id = try reader.readInt(u32, .big),
+            .username = try reader.readStringUtf16BE(alloc),
+            .x = try reader.readInt(i32, .big),
+            .y = try reader.readInt(i32, .big),
+            .z = try reader.readInt(i32, .big),
+            .yaw = try reader.readInt(u8, .big),
+            .pitch = try reader.readInt(u8, .big),
+            .current_item = try reader.readInt(u16, .big),
+        };
+    }
+
+    pub fn encode(self: NamedEntitySpawn, writer: io.AnyWriter) !void {
+        try writer.writeInt(u32, self.entity_id, .big);
+        try writeString16(self.username, writer);
+        try writer.writeInt(i32, self.x, .big);
+        try writer.writeInt(i32, self.y, .big);
+        try writer.writeInt(i32, self.z, .big);
+        try writer.writeInt(u8, self.yaw, .big);
+        try writer.writeInt(u8, self.pitch, .big);
+        try writer.writeInt(u16, self.current_item, .big);
+    }
+};
+
+pub const EntityTeleport = struct {
+    pub const ID = 0x22;
+
+    entity_id: u32,
+    x: i32,
+    y: i32,
+    z: i32,
+    yaw: f32,
+    pitch: f32,
+
+    pub fn decode(reader: *StreamReader) !EntityTeleport {
+        return EntityTeleport{
+            .entity_id = try reader.readInt(u32, .big),
+            .x = try reader.readInt(i32, .big),
+            .y = try reader.readInt(i32, .big),
+            .z = try reader.readInt(i32, .big),
+            .yaw = try reader.readFloat(f32),
+            .pitch = try reader.readFloat(f32),
+        };
+    }
+
+    pub fn encode(self: EntityTeleport, writer: io.AnyWriter) !void {
+        try writer.writeInt(u32, self.entity_id, .big);
+        try writer.writeInt(i32, self.x, .big);
+        try writer.writeInt(i32, self.y, .big);
+        try writer.writeInt(i32, self.z, .big);
+        try writer.writeInt(u32, @bitCast(self.yaw), .big);
+        try writer.writeInt(u32, @bitCast(self.pitch), .big);
+    }
+};
+
 pub const PacketId = enum(u8) {
     keep_alive = KeepAlive.ID,
     login = Login.ID,
@@ -261,6 +329,8 @@ pub const PacketId = enum(u8) {
     player_look = PlayerLook.ID,
     player_position_and_look = PlayerPositionAndLook.ID,
     holding_change = HoldingChange.ID,
+    named_entity_spawn = NamedEntitySpawn.ID,
+    entity_teleport = EntityTeleport.ID,
 };
 
 pub const Packet = union(PacketId) {
@@ -276,6 +346,8 @@ pub const Packet = union(PacketId) {
     player_look: PlayerLook,
     player_position_and_look: PlayerPositionAndLook,
     holding_change: HoldingChange,
+    named_entity_spawn: NamedEntitySpawn,
+    entity_teleport: EntityTeleport,
 };
 
 comptime {
@@ -300,6 +372,8 @@ pub fn readPacket(reader: *StreamReader, alloc: std.mem.Allocator) !Packet {
         PlayerLook.ID => .{ .player_look = try PlayerLook.decode(reader) },
         PlayerPositionAndLook.ID => .{ .player_position_and_look = try PlayerPositionAndLook.decode(reader) },
         HoldingChange.ID => .{ .holding_change = try HoldingChange.decode(reader) },
+        NamedEntitySpawn.ID => .{ .named_entity_spawn = try NamedEntitySpawn.decode(reader, alloc) },
+        EntityTeleport.ID => .{ .entity_teleport = try EntityTeleport.decode(reader) },
         else => {
             std.debug.print("Read packet ID 0x{0X:0>2} ({0d})\n", .{packet_id});
             return error.InvalidPacket;
@@ -319,6 +393,8 @@ pub fn writePacket(writer: io.AnyWriter, packet: Packet) !void {
         .entity_equipment => try packet.entity_equipment.encode(writer),
         .spawn_position => try packet.spawn_position.encode(writer),
         .player_position_and_look => try packet.player_position_and_look.encode(writer),
+        .named_entity_spawn => try packet.named_entity_spawn.encode(writer),
+        .entity_teleport => try packet.entity_teleport.encode(writer),
         else => {
             std.debug.print("Write packet ID 0x{0X:0>2} ({0d})\n", .{@intFromEnum(packet)});
             return error.InvalidPacket;

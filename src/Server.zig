@@ -9,6 +9,7 @@ const posix = std.posix;
 
 const Allocator = mem.Allocator;
 
+const Player = @import("Player.zig");
 const StreamReader = @import("StreamReader.zig");
 const ServerConnection = @import("ServerConnection.zig");
 
@@ -19,6 +20,8 @@ polls: []posix.pollfd,
 connected: usize,
 connections: []ServerConnection,
 connection_polls: []posix.pollfd,
+
+eid: u32 = 0,
 
 pub fn init(allocator: Allocator, max_clients: usize) !Self {
     const polls = try allocator.alloc(posix.pollfd, max_clients + 1);
@@ -34,6 +37,11 @@ pub fn init(allocator: Allocator, max_clients: usize) !Self {
         .connections = connections,
         .connection_polls = polls[1..],
     };
+}
+
+pub fn deinit(self: *Self) void {
+    self.allocator.free(self.polls);
+    self.allocator.free(self.connections);
 }
 
 pub fn run(self: *Self, address: net.Address) !void {
@@ -77,6 +85,8 @@ pub fn run(self: *Self, address: net.Address) !void {
 
             const client = &self.connections[i];
             if (revents & posix.POLL.IN == posix.POLL.IN) {
+                var moved = false;
+
                 const packet = client.readMessage() catch |err| switch (err) {
                     error.Disconnected => {
                         std.debug.print("Client {} disconnected\n", .{client.address.getPort()});
@@ -106,16 +116,28 @@ pub fn run(self: *Self, address: net.Address) !void {
                 };
 
                 if (packet == .keep_alive) {
-                    _ = try posix.write(client.socket, &.{0x00});
+                    try client.writeMessage(.{ .keep_alive = .{} });
                 }
 
                 if (packet == .handshake) {
-                    _ = try posix.write(client.socket, &.{ 0x02, 0x00, 0x01, 0x00, '-' });
+                    try client.writeMessage(.{ .handshake = .{ .data = "-" } });
                 }
 
                 if (packet == .login) {
+                    // crap
+                    const player = try self.allocator.create(Player);
+                    errdefer self.allocator.destroy(player);
+                    player.* = Player.init(client, self.nextEid());
+                    std.mem.copyForwards(u8, &player.username_str, packet.login.username);
+                    player.username_len = packet.login.username.len;
+                    client.player = player;
+
+                    player.x = 60.0;
+                    player.y = 32.0;
+                    player.z = 60.0;
+
                     try client.writeMessage(.{ .login = .{
-                        .data = 0x0F,
+                        .data = player.eid,
                         .username = &.{},
                         .map_seed = 0,
                         .dimension = 0,
@@ -182,9 +204,9 @@ pub fn run(self: *Self, address: net.Address) !void {
                     }
 
                     try client.writeMessage(.{ .player_position_and_look = .{
-                        .x = 60.0,
-                        .y = 32.0,
-                        .z = 60.0,
+                        .x = player.x,
+                        .y = player.y,
+                        .z = player.z,
                         .stance = 33.5,
                         .yaw = 0.0,
                         .pitch = 0.0,
@@ -194,6 +216,72 @@ pub fn run(self: *Self, address: net.Address) !void {
                     try client.writeMessage(.{
                         .chat_message = .ofString("Hello from Zig!"),
                     });
+
+                    for (self.connections[0..self.connected]) |*target| {
+                        if (target.player) |target_player| {
+                            if (target_player.eid != player.eid) {
+                                try target.writeMessage(.{ .named_entity_spawn = .{
+                                    .entity_id = player.eid,
+                                    .username = player.username(),
+                                    .x = @intFromFloat(player.x),
+                                    .y = @intFromFloat(player.y),
+                                    .z = @intFromFloat(player.z),
+                                    .yaw = 0,
+                                    .pitch = 0,
+                                    .current_item = 0,
+                                } });
+
+                                try client.writeMessage(.{ .named_entity_spawn = .{
+                                    .entity_id = target_player.eid,
+                                    .username = target_player.username(),
+                                    .x = @intFromFloat(target_player.x),
+                                    .y = @intFromFloat(target_player.y),
+                                    .z = @intFromFloat(target_player.z),
+                                    .yaw = 0,
+                                    .pitch = 0,
+                                    .current_item = 0,
+                                } });
+                            }
+                        }
+                    }
+                }
+
+                if (packet == .player_position_and_look) {
+                    if (client.player) |player| {
+                        moved = true;
+                        player.x = packet.player_position_and_look.x;
+                        player.y = packet.player_position_and_look.y;
+                        player.z = packet.player_position_and_look.z;
+                    }
+                }
+
+                if (packet == .player_position) {
+                    if (client.player) |player| {
+                        moved = true;
+                        player.x = packet.player_position.x;
+                        player.y = packet.player_position.y;
+                        player.z = packet.player_position.z;
+                    }
+                }
+
+                // TODO: REMOVE JANK
+                if (moved) {
+                    if (client.player) |player| {
+                        for (self.connections[0..self.connected]) |*target| {
+                            if (target.player) |target_player| {
+                                if (target_player.eid != player.eid) {
+                                    try target.writeMessage(.{ .entity_teleport = .{
+                                        .entity_id = player.eid,
+                                        .x = @intFromFloat(player.x),
+                                        .y = @intFromFloat(player.y),
+                                        .z = @intFromFloat(player.z),
+                                        .yaw = 0.0,
+                                        .pitch = 0.0,
+                                    } });
+                                }
+                            }
+                        }
+                    }
                 }
 
                 if (packet == .chat_message) {
@@ -208,35 +296,26 @@ pub fn run(self: *Self, address: net.Address) !void {
                             inline for (.{ "--- Help ---", "wowwie" }) |msg| {
                                 try client.writeMessage(.{ .chat_message = .ofString(msg) });
                             }
-                        } else if (mem.startsWith(u8, command, "utf")) {
-                            var from: u16 = 0;
+                        } else if (mem.startsWith(u8, command, "npc")) {
+                            if (client.player) |player| {
+                                const npcEid = self.nextEid();
+                                try client.writeMessage(.{ .named_entity_spawn = .{
+                                    .x = @intFromFloat(player.x),
+                                    .y = @intFromFloat(player.y),
+                                    .z = @intFromFloat(player.z),
+                                    .pitch = 0,
+                                    .yaw = 0,
+                                    .current_item = 0,
+                                    .entity_id = npcEid,
+                                    .username = "NPC",
+                                } });
 
-                            var msg: [18]u8 = .{ '&', 'a', 'F', 'r', 'o', 'm', ':', ' ', '0', 'x' } ++ [_]u8{' '} ** 8;
-                            _ = std.fmt.bufPrintIntToSlice(msg[10..18], from, 16, .upper, .{ .alignment = .left });
-                            try client.writeMessage(.{
-                                .chat_message = .ofString(&msg),
-                            });
-
-                            msg = .{ '&', 'a', 'T', 'o', ':', ' ', '0', 'x' } ++ [_]u8{' '} ** 10;
-                            _ = std.fmt.bufPrintIntToSlice(msg[8..16], from + 16 * 16, 16, .upper, .{ .alignment = .left });
-                            try client.writeMessage(.{
-                                .chat_message = .ofString(&msg),
-                            });
-
-                            for (0..16) |offset| {
-                                const start: u8 = @intCast(from + offset * 16);
                                 try client.writeMessage(.{
-                                    .chat_message = .{
-                                        .message = &[16]u8{
-                                            start,      start + 1,  start + 2,  start + 3,
-                                            start + 4,  start + 5,  start + 6,  start + 7,
-                                            start + 8,  start + 9,  start + 10, start + 11,
-                                            start + 12, start + 13, start + 14, start + 15,
-                                        },
-                                    },
+                                    .chat_message = .ofString("Spawned a NPC with ID " ++
+                                        .{@as(u8, @intCast(npcEid >> 4)) + '0'} ++
+                                        .{@as(u8, @intCast(npcEid & 0xF)) + '0'}),
                                 });
                             }
-                            from += 16 * 16;
                         } else {
                             try client.writeMessage(.{
                                 .chat_message = .ofString("&4Unknown command. Check /help"),
@@ -295,9 +374,10 @@ fn removeClient(self: *Self, index: usize) void {
     self.connected = last_index;
 }
 
-pub fn deinit(self: *Self) void {
-    self.allocator.free(self.polls);
-    self.allocator.free(self.connections);
+fn nextEid(self: *Self) u32 {
+    const eid = self.eid;
+    self.eid += 1;
+    return eid;
 }
 
 fn printBytes(bytes: []const u8) void {
