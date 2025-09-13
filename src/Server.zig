@@ -272,9 +272,9 @@ pub fn run(self: *Self, address: net.Address) !void {
                                 if (target_player.eid != player.eid) {
                                     try target.writeMessage(.{ .entity_teleport = .{
                                         .entity_id = player.eid,
-                                        .x = @intFromFloat(player.x),
-                                        .y = @intFromFloat(player.y),
-                                        .z = @intFromFloat(player.z),
+                                        .x = @intFromFloat(player.x * 32.0),
+                                        .y = @intFromFloat(player.y * 32.0),
+                                        .z = @intFromFloat(player.z * 32.0),
                                         .yaw = 0.0,
                                         .pitch = 0.0,
                                     } });
@@ -300,9 +300,14 @@ pub fn run(self: *Self, address: net.Address) !void {
                             if (client.player) |player| {
                                 const npcEid = self.nextEid();
 
+                                var username: [5]u8 = undefined;
+                                @memcpy(&username, "NPC00");
+                                username[3] = @as(u8, @intCast(npcEid >> 4)) + '0';
+                                username[4] = @as(u8, @intCast(npcEid & 0xF)) + '0';
+
                                 try client.writeMessage(.{ .named_entity_spawn = .{
                                     .entity_id = npcEid,
-                                    .username = "NPCgamer",
+                                    .username = &username,
                                     .x = @intFromFloat(player.x * 32.0),
                                     .y = @intFromFloat(player.y * 32.0),
                                     .z = @intFromFloat(player.z * 32.0),
