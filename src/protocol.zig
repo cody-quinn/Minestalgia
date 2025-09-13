@@ -101,33 +101,36 @@ pub const TimeUpdate = struct {
     }
 };
 
+pub const EquipmentSlot = enum(u16) {
+    hand = 0,
+    boots = 1,
+    leggings = 2,
+    chestplate = 3,
+    helmet = 4,
+};
+
 pub const EntityEquipment = struct {
     pub const ID = 0x05;
 
     entity_id: u32,
-    /// 0. Held
-    /// 1. Armor
-    /// 2. Armor
-    /// 3. Armor
-    /// 4. Armor
-    slot: u16,
+    slot: EquipmentSlot,
     item_id: u16,
-    unknown: u16,
+    metadata: u16,
 
     pub fn decode(reader: *StreamReader) !EntityEquipment {
         return EntityEquipment{
             .entity_id = try reader.readInt(u32, .big),
-            .slot = try reader.readInt(u16, .big),
+            .slot = @enumFromInt(try reader.readInt(u16, .big)),
             .item_id = try reader.readInt(u16, .big),
-            .unknown = try reader.readInt(u16, .big),
+            .metadata = try reader.readInt(u16, .big),
         };
     }
 
     pub fn encode(self: EntityEquipment, writer: io.AnyWriter) !void {
         try writer.writeInt(u32, self.entity_id, .big);
-        try writer.writeInt(u16, self.slot, .big);
+        try writer.writeInt(u16, @intFromEnum(self.slot), .big);
         try writer.writeInt(u16, self.item_id, .big);
-        try writer.writeInt(u16, self.unknown, .big);
+        try writer.writeInt(u16, self.metadata, .big);
     }
 };
 

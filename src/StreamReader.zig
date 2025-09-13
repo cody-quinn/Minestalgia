@@ -45,6 +45,23 @@ pub fn readBoolean(self: *Self) Error!bool {
     return try self.readInt(u8, .big) != 0;
 }
 
+pub fn readVarInt(self: *Self) Error!i32 {
+    const segment_bits = 0x7F;
+    const continue_bit = 0x80;
+
+    var value: i32 = 0;
+    var position: u5 = 0;
+    var current: u8 = 0;
+
+    while (position < 32 and current & continue_bit == continue_bit) {
+        current = try self.readByte();
+        value |= (value & segment_bits) << position;
+        position += 7;
+    }
+
+    return value;
+}
+
 /// Reads UTF-8 strings
 pub fn readStringUtf8(self: *Self, alloc: mem.Allocator) ErrorAllocating![]const u8 {
     const length = try self.readInt(u16, .big);

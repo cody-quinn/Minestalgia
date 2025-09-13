@@ -60,8 +60,6 @@ pub fn run(self: *Self, address: net.Address) !void {
         .events = posix.POLL.IN,
     };
 
-    const chunk_data_compressed = @import("main.zig").chunk_data_compressed;
-
     while (true) {
         std.debug.print("Looped\n", .{});
 
@@ -70,7 +68,7 @@ pub fn run(self: *Self, address: net.Address) !void {
         // Accept new clients
         if (self.polls[0].revents != 0) {
             self.acceptClients(listener) catch |err| {
-                std.debug.print("Error accepting client:\n{}\n", .{err});
+                std.debug.print("Error accepting client: {}\n", .{err});
             };
         }
 
@@ -85,9 +83,16 @@ pub fn run(self: *Self, address: net.Address) !void {
 
             const client = &self.connections[i];
             if (revents & posix.POLL.IN == posix.POLL.IN) {
-                var moved = false;
-
                 const packet = client.readMessage() catch |err| switch (err) {
+                    error.NettyProtocol => {
+                        std.debug.print("Client {} is running a modern version of MC\n", .{client.address.getPort()});
+                        self.processModernClient(client) catch |err2| {
+                            std.debug.print("Failed to respond with ping to modern client due to error: {}\n", .{err2});
+                        };
+                        self.removeClient(i);
+                        i += 1;
+                        continue;
+                    },
                     error.Disconnected => {
                         std.debug.print("Client {} disconnected\n", .{client.address.getPort()});
                         self.removeClient(i);
@@ -115,237 +120,278 @@ pub fn run(self: *Self, address: net.Address) !void {
                     },
                 };
 
-                if (packet == .keep_alive) {
-                    try client.writeMessage(.{ .keep_alive = .{} });
-                }
+                try self.processPacket(packet, client);
+            }
+        }
+    }
+}
 
-                if (packet == .handshake) {
-                    try client.writeMessage(.{ .handshake = .{ .data = "-" } });
-                }
+fn processModernClient(self: *Self, client: *ServerConnection) !void {
+    const response =
+        \\{{
+        \\    "version": {{
+        \\        "name": "Minestalgia",
+        \\        "protocol": 0
+        \\    }},
+        \\    "players": {{
+        \\        "max": {d},
+        \\        "online": {d},
+        \\        "sample": [
+        \\            {{
+        \\                "name": "cakeless",
+        \\                "id": "0541ed27-7595-4e6a-9101-6c07f879b7b5"
+        \\            }}
+        \\        ]
+        \\    }},
+        \\    "description": {{
+        \\        "text": "Hello, world!"
+        \\    }},
+        \\    "favicon": "data:image/png;base64,<data>",
+        \\    "enforcesSecureChat": false
+        \\}}
+        \\
+    ;
 
-                if (packet == .login) {
-                    // crap
-                    const player = try self.allocator.create(Player);
-                    errdefer self.allocator.destroy(player);
-                    player.* = Player.init(client, self.nextEid());
-                    std.mem.copyForwards(u8, &player.username_str, packet.login.username);
-                    player.username_len = packet.login.username.len;
-                    client.player = player;
+    std.debug.print(response, .{self.connected + 1, self.connected});
 
-                    player.x = 60.0;
-                    player.y = 32.0;
-                    player.z = 60.0;
+    const buffer = client.serverbound_buffer;
+    const buffer_slice = buffer.buffer[buffer.read_head..buffer.write_head];
+    printBytes(buffer_slice);
+}
 
-                    try client.writeMessage(.{ .login = .{
-                        .data = player.eid,
-                        .username = &.{},
-                        .map_seed = 0,
-                        .dimension = 0,
-                    } });
+fn processPacket(self: *Self, packet: proto.Packet, client: *ServerConnection) !void {
+    const chunk_data_compressed = @import("main.zig").chunk_data_compressed;
 
-                    try client.writeMessage(.{ .spawn_position = .{
-                        .x = 120,
-                        .y = 64,
-                        .z = 120,
-                    } });
+    switch (packet) {
+        .keep_alive => try client.writeMessage(.{ .keep_alive = .{} }),
+        .handshake => {
+            try client.writeMessage(.{ .handshake = .{ .data = "-" } });
+            client.handshook = true;
+        },
+        .login => |login| {
+            const player = try self.allocator.create(Player);
+            errdefer self.allocator.destroy(player);
+            player.* = Player.init(client, self.nextEid());
+            std.mem.copyForwards(u8, &player.username_str, login.username);
+            player.username_len = login.username.len;
+            client.player = player;
 
-                    try client.writeMessage(.{ .time_update = .{
-                        .time = 6_000,
-                    } });
+            player.x = 60.0;
+            player.y = 32.0;
+            player.z = 60.0;
 
-                    // Update health
+            try client.writeMessage(.{ .login = .{
+                .data = player.eid,
+                .username = &.{},
+                .map_seed = 0,
+                .dimension = 0,
+            } });
+
+            try client.writeMessage(.{ .spawn_position = .{
+                .x = 120,
+                .y = 64,
+                .z = 120,
+            } });
+
+            try client.writeMessage(.{ .time_update = .{
+                .time = 6_000,
+            } });
+
+            // Update health
+            _ = try posix.write(client.socket, &.{
+                0x08,
+                0x00,
+                0x10,
+            });
+
+            // Window items
+            _ = try posix.write(client.socket, &.{
+                0x68,
+                0x00, // inv id
+                0x00, 44, // item count
+            });
+
+            for (1..45) |j| {
+                const k: u8 = @intCast(j);
+                _ = try posix.write(client.socket, &.{
+                    0x00, k, k, 0x00, 0x00,
+                });
+            }
+
+            for (0..15) |x| {
+                for (0..15) |y| {
                     _ = try posix.write(client.socket, &.{
-                        0x08,
-                        0x00,
-                        0x10,
+                        0x32,
+                        0x00, 0x00, 0x00, @as(u8, @intCast(x)), // x
+                        0x00, 0x00, 0x00, @as(u8, @intCast(y)), // y
+                        0x01,
                     });
+                }
+            }
 
-                    // Window items
-                    _ = try posix.write(client.socket, &.{
-                        0x68,
-                        0x00, // inv id
-                        0x00, 44, // item count
+            for (0..15) |x| {
+                for (0..15) |y| {
+                    const a = try posix.write(client.socket, &.{
+                        0x33,
+                        0x00, 0x00, 0x00, @as(u8, @intCast(x)) * 16, // x
+                        0x00, 0x00, // y
+                        0x00, 0x00, 0x00, @as(u8, @intCast(y)) * 16, // z
+                        15, 127, 15, // size
+                        @truncate(chunk_data_compressed.len >> 24), // chunk data
+                        @truncate(chunk_data_compressed.len >> 16),
+                        @truncate(chunk_data_compressed.len >> 8),
+                        @truncate(chunk_data_compressed.len),
                     });
-
-                    for (1..45) |j| {
-                        const k: u8 = @intCast(j);
-                        _ = try posix.write(client.socket, &.{
-                            0x00, k, k, 0x00, 0x00,
-                        });
-                    }
-
-                    for (0..15) |x| {
-                        for (0..15) |y| {
-                            _ = try posix.write(client.socket, &.{
-                                0x32,
-                                0x00, 0x00, 0x00, @as(u8, @intCast(x)), // x
-                                0x00, 0x00, 0x00, @as(u8, @intCast(y)), // y
-                                0x01,
-                            });
-                        }
-                    }
-
-                    for (0..15) |x| {
-                        for (0..15) |y| {
-                            const a = try posix.write(client.socket, &.{
-                                0x33,
-                                0x00, 0x00, 0x00, @as(u8, @intCast(x)) * 16, // x
-                                0x00, 0x00, // y
-                                0x00, 0x00, 0x00, @as(u8, @intCast(y)) * 16, // z
-                                15, 127, 15, // size
-                                @truncate(chunk_data_compressed.len >> 24), // chunk data
-                                @truncate(chunk_data_compressed.len >> 16),
-                                @truncate(chunk_data_compressed.len >> 8),
-                                @truncate(chunk_data_compressed.len),
-                            });
-                            const b = try posix.write(client.socket, chunk_data_compressed);
-                            std.debug.print("{} - {} - {}\n", .{ chunk_data_compressed.len, a, b });
-                        }
-                    }
-
-                    try client.writeMessage(.{ .player_position_and_look = .{
-                        .x = player.x,
-                        .y = player.y,
-                        .z = player.z,
-                        .stance = 33.5,
-                        .yaw = 0.0,
-                        .pitch = 0.0,
-                        .on_ground = false,
-                    } });
-
-                    try client.writeMessage(.{
-                        .chat_message = .ofString("Hello from Zig!"),
-                    });
-
-                    for (self.connections[0..self.connected]) |*target| {
-                        if (target.player) |target_player| {
-                            if (target_player.eid != player.eid) {
-                                try target.writeMessage(.{ .named_entity_spawn = .{
-                                    .entity_id = player.eid,
-                                    .username = player.username(),
-                                    .x = @intFromFloat(player.x),
-                                    .y = @intFromFloat(player.y),
-                                    .z = @intFromFloat(player.z),
-                                    .yaw = 0,
-                                    .pitch = 0,
-                                    .current_item = 0,
-                                } });
-
-                                try client.writeMessage(.{ .named_entity_spawn = .{
-                                    .entity_id = target_player.eid,
-                                    .username = target_player.username(),
-                                    .x = @intFromFloat(target_player.x),
-                                    .y = @intFromFloat(target_player.y),
-                                    .z = @intFromFloat(target_player.z),
-                                    .yaw = 0,
-                                    .pitch = 0,
-                                    .current_item = 0,
-                                } });
-                            }
-                        }
-                    }
+                    const b = try posix.write(client.socket, chunk_data_compressed);
+                    std.debug.print("{} - {} - {}\n", .{ chunk_data_compressed.len, a, b });
                 }
+            }
 
-                if (packet == .player_position_and_look) {
-                    if (client.player) |player| {
-                        moved = true;
-                        player.x = packet.player_position_and_look.x;
-                        player.y = packet.player_position_and_look.y;
-                        player.z = packet.player_position_and_look.z;
-                    }
-                }
+            try client.writeMessage(.{ .player_position_and_look = .{
+                .x = player.x,
+                .y = player.y,
+                .z = player.z,
+                .stance = 33.5,
+                .yaw = 0.0,
+                .pitch = 0.0,
+                .on_ground = false,
+            } });
 
-                if (packet == .player_position) {
-                    if (client.player) |player| {
-                        moved = true;
-                        player.x = packet.player_position.x;
-                        player.y = packet.player_position.y;
-                        player.z = packet.player_position.z;
-                    }
-                }
+            try client.writeMessage(.{
+                .chat_message = .ofString("Hello from Zig!"),
+            });
 
-                // TODO: REMOVE JANK
-                if (moved) {
-                    if (client.player) |player| {
-                        for (self.connections[0..self.connected]) |*target| {
-                            if (target.player) |target_player| {
-                                if (target_player.eid != player.eid) {
-                                    try target.writeMessage(.{ .entity_teleport = .{
-                                        .entity_id = player.eid,
-                                        .x = @intFromFloat(player.x * 32.0),
-                                        .y = @intFromFloat(player.y * 32.0),
-                                        .z = @intFromFloat(player.z * 32.0),
-                                        .yaw = 0.0,
-                                        .pitch = 0.0,
-                                    } });
-                                }
-                            }
-                        }
-                    }
-                }
+            for (self.connections[0..self.connected]) |*target| {
+                if (target.player) |target_player| {
+                    if (target_player.eid != player.eid) {
+                        try target.writeMessage(.{ .named_entity_spawn = .{
+                            .entity_id = player.eid,
+                            .username = player.username(),
+                            .x = @intFromFloat(player.x),
+                            .y = @intFromFloat(player.y),
+                            .z = @intFromFloat(player.z),
+                            .yaw = 0,
+                            .pitch = 0,
+                            .current_item = 0,
+                        } });
 
-                if (packet == .chat_message) {
-                    const value = packet.chat_message.message;
-                    defer self.allocator.free(value);
-
-                    if (value[0] == '/') {
-                        var parts = mem.splitScalar(u8, value[1..], ' ');
-                        const command = parts.next() orelse "help";
-
-                        if (mem.eql(u8, command, "help")) {
-                            inline for (.{ "--- Help ---", "wowwie" }) |msg| {
-                                try client.writeMessage(.{ .chat_message = .ofString(msg) });
-                            }
-                        } else if (mem.startsWith(u8, command, "npc")) {
-                            if (client.player) |player| {
-                                const npcEid = self.nextEid();
-
-                                var username: [5]u8 = undefined;
-                                @memcpy(&username, "NPC00");
-                                username[3] = @as(u8, @intCast(npcEid >> 4)) + '0';
-                                username[4] = @as(u8, @intCast(npcEid & 0xF)) + '0';
-
-                                try client.writeMessage(.{ .named_entity_spawn = .{
-                                    .entity_id = npcEid,
-                                    .username = &username,
-                                    .x = @intFromFloat(player.x * 32.0),
-                                    .y = @intFromFloat(player.y * 32.0),
-                                    .z = @intFromFloat(player.z * 32.0),
-                                    .yaw = 0,
-                                    .pitch = 0,
-                                    .current_item = 0,
-                                } });
-
-                                try client.writeMessage(.{ .entity_teleport = .{
-                                    .entity_id = npcEid,
-                                    .x = @intFromFloat(player.x * 32.0),
-                                    .y = @intFromFloat(player.y * 32.0),
-                                    .z = @intFromFloat(player.z * 32.0),
-                                    .yaw = 0,
-                                    .pitch = 0,
-                                } });
-
-                                try client.writeMessage(.{
-                                    .chat_message = .ofString("Spawned a NPC with ID " ++
-                                        .{@as(u8, @intCast(npcEid >> 4)) + '0'} ++
-                                        .{@as(u8, @intCast(npcEid & 0xF)) + '0'}),
-                                });
-                            }
-                        } else {
-                            try client.writeMessage(.{
-                                .chat_message = .ofString("&4Unknown command. Check /help"),
-                            });
-                        }
-                    } else {
-                        for (self.connections[0..self.connected]) |*target| {
-                            try target.writeMessage(.{ .chat_message = .ofString(value) });
-                        }
+                        try client.writeMessage(.{ .named_entity_spawn = .{
+                            .entity_id = target_player.eid,
+                            .username = target_player.username(),
+                            .x = @intFromFloat(target_player.x),
+                            .y = @intFromFloat(target_player.y),
+                            .z = @intFromFloat(target_player.z),
+                            .yaw = 0,
+                            .pitch = 0,
+                            .current_item = 0,
+                        } });
                     }
                 }
             }
-        }
+        },
+        else => {
+            if (client.player) |player| {
+                try self.processPlayPacket(packet, player);
+            } else {
+                std.debug.print("Process play-stage packet ID 0x{0X:0>2} ({0d}) without player\n", .{@intFromEnum(packet)});
+            }
+        },
+    }
+}
 
-        // Handle broadcasting messages to clients
+fn processPlayPacket(self: *Self, packet: proto.Packet, player: *Player) !void {
+    switch (packet) {
+        .keep_alive, .handshake, .login => unreachable,
+        .chat_message => |chat_message| {
+            const message = chat_message.message;
+
+            if (message[0] == '/') {
+                try self.processCommand(player, message);
+                return;
+            }
+
+            for (self.connections[0..self.connected]) |*target| {
+                try target.writeMessage(.{ .chat_message = .ofString(message) });
+            }
+        },
+        .player_position => |pos| {
+            player.x = pos.x;
+            player.y = pos.y;
+            player.z = pos.z;
+        },
+        .player_position_and_look => |pos| {
+            player.x = pos.x;
+            player.y = pos.y;
+            player.z = pos.z;
+        },
+        else => {},
+    }
+}
+
+fn processCommand(self: *Self, player: *Player, raw_command: []const u8) !void {
+    var parts = mem.splitScalar(u8, raw_command[1..], ' ');
+
+    const command_str = parts.next() orelse "unknown";
+    const command = std.meta.stringToEnum(enum {
+        unknown,
+        help,
+        npc,
+    }, command_str) orelse .unknown;
+
+    switch (command) {
+        .unknown => {
+            try player.connection.writeMessage(.{
+                .chat_message = .ofString("Unknown command! Use /help to see all commands."),
+            });
+        },
+        .help => {
+            try player.connection.writeMessage(.{
+                .chat_message = .ofString("Available commands: unknown, help, npc"),
+            });
+        },
+        .npc => {
+            const npcEid = self.nextEid();
+
+            var username: [5]u8 = undefined;
+            @memcpy(&username, "NPC00");
+            username[3] = @as(u8, @intCast(npcEid >> 4)) + '0';
+            username[4] = @as(u8, @intCast(npcEid & 0xF)) + '0';
+
+            try player.connection.writeMessage(.{ .named_entity_spawn = .{
+                .entity_id = npcEid,
+                .username = &username,
+                .x = @intFromFloat(player.x * 32.0),
+                .y = @intFromFloat(player.y * 32.0),
+                .z = @intFromFloat(player.z * 32.0),
+                .yaw = 0,
+                .pitch = 0,
+                .current_item = 0,
+            } });
+
+            try player.connection.writeMessage(.{ .entity_teleport = .{
+                .entity_id = npcEid,
+                .x = @intFromFloat(player.x * 32.0),
+                .y = @intFromFloat(player.y * 32.0),
+                .z = @intFromFloat(player.z * 32.0),
+                .yaw = 0,
+                .pitch = 0,
+            } });
+
+            for (0..5) |slot| {
+                try player.connection.writeMessage(.{ .entity_equipment = .{
+                    .entity_id = npcEid,
+                    .item_id = @intCast(42 + 256 + 3 * slot),
+                    .slot = @enumFromInt(slot),
+                    .metadata = 0,
+                } });
+            }
+
+            try player.connection.writeMessage(.{
+                .chat_message = .ofString("Spawned a NPC with ID " ++
+                    .{@as(u8, @intCast(npcEid >> 4)) + '0'} ++
+                    .{@as(u8, @intCast(npcEid & 0xF)) + '0'}),
+            });
+        },
     }
 }
 

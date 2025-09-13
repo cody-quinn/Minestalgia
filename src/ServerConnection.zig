@@ -19,7 +19,8 @@ allocator: Allocator,
 
 socket: posix.socket_t,
 address: net.Address,
-is_connected: bool,
+handshook: bool = false,
+is_connected: bool = true,
 
 serverbound_buffer: NetworkBuffer,
 clientbound_buffer: NetworkBuffer,
@@ -37,7 +38,6 @@ pub fn init(allocator: Allocator, socket: posix.socket_t, address: net.Address) 
         .allocator = allocator,
         .socket = socket,
         .address = address,
-        .is_connected = true,
         .serverbound_buffer = serverbound_buffer,
         .clientbound_buffer = clientbound_buffer,
     };
@@ -57,8 +57,13 @@ pub fn readMessage(self: *Self) !proto.Packet {
     try self.serverbound_buffer.fillBuffer(self.socket);
 
     const buffer_slice = self.serverbound_buffer.buffer[self.serverbound_buffer.read_head..self.serverbound_buffer.write_head];
-    var reader = StreamReader.fromBuffer(buffer_slice);
 
+    if (!self.handshook and buffer_slice[0] > 2) {
+        self.handshook = true;
+        return error.NettyProtocol;
+    }
+
+    var reader = StreamReader.fromBuffer(buffer_slice);
     const packet = try proto.readPacket(&reader, self.allocator);
 
     self.serverbound_buffer.read_head += reader.head;
