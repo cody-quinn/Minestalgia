@@ -299,15 +299,25 @@ pub fn run(self: *Self, address: net.Address) !void {
                         } else if (mem.startsWith(u8, command, "npc")) {
                             if (client.player) |player| {
                                 const npcEid = self.nextEid();
+
                                 try client.writeMessage(.{ .named_entity_spawn = .{
-                                    .x = @intFromFloat(player.x),
-                                    .y = @intFromFloat(player.y),
-                                    .z = @intFromFloat(player.z),
-                                    .pitch = 0,
-                                    .yaw = 0,
-                                    .current_item = 0,
                                     .entity_id = npcEid,
-                                    .username = "NPC",
+                                    .username = "NPCgamer",
+                                    .x = @intFromFloat(player.x * 32.0),
+                                    .y = @intFromFloat(player.y * 32.0),
+                                    .z = @intFromFloat(player.z * 32.0),
+                                    .yaw = 0,
+                                    .pitch = 0,
+                                    .current_item = 0,
+                                } });
+
+                                try client.writeMessage(.{ .entity_teleport = .{
+                                    .entity_id = npcEid,
+                                    .x = @intFromFloat(player.x * 32.0),
+                                    .y = @intFromFloat(player.y * 32.0),
+                                    .z = @intFromFloat(player.z * 32.0),
+                                    .yaw = 0,
+                                    .pitch = 0,
                                 } });
 
                                 try client.writeMessage(.{

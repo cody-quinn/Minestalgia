@@ -27,19 +27,18 @@ pub fn readInt(self: *Self, comptime T: type, endian: std.builtin.Endian) Error!
         return Error.EndOfStream;
     }
 
-    const value = mem.readInt(T, @constCast(@ptrCast(self.buffer[self.head .. self.head + @sizeOf(T)])), endian);
+    const slice: *const [@sizeOf(T)]u8 = @ptrCast(self.buffer[self.head .. self.head + @sizeOf(T)]);
+    const value: T = mem.readInt(T, slice, endian);
     self.head += @sizeOf(T);
     return value;
 }
 
-pub fn readFloat(self: *Self, comptime T: type) Error!T {
-    if (self.head + @sizeOf(T) > self.buffer.len) {
-        return Error.EndOfStream;
-    }
+pub fn readDouble(self: *Self) Error!f64 {
+    return @bitCast(try self.readInt(u64, .big));
+}
 
-    const value: T = @as(*T, @constCast(@ptrCast(&self.buffer[self.head .. self.head + @sizeOf(T)]))).*;
-    self.head += @sizeOf(T);
-    return value;
+pub fn readFloat(self: *Self) Error!f32 {
+    return @bitCast(try self.readInt(u32, .big));
 }
 
 pub fn readBoolean(self: *Self) Error!bool {

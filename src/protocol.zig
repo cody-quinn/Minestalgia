@@ -176,10 +176,10 @@ pub const PlayerPosition = struct {
 
     pub fn decode(reader: *StreamReader) !PlayerPosition {
         return PlayerPosition{
-            .x = try reader.readFloat(f64),
-            .y = try reader.readFloat(f64),
-            .stance = try reader.readFloat(f64),
-            .z = try reader.readFloat(f64),
+            .x = try reader.readDouble(),
+            .y = try reader.readDouble(),
+            .stance = try reader.readDouble(),
+            .z = try reader.readDouble(),
             .on_ground = try reader.readBoolean(),
         };
     }
@@ -194,8 +194,8 @@ pub const PlayerLook = struct {
 
     pub fn decode(reader: *StreamReader) !PlayerLook {
         return PlayerLook{
-            .yaw = try reader.readFloat(f32),
-            .pitch = try reader.readFloat(f32),
+            .yaw = try reader.readFloat(),
+            .pitch = try reader.readFloat(),
             .on_ground = try reader.readBoolean(),
         };
     }
@@ -214,12 +214,12 @@ pub const PlayerPositionAndLook = struct {
 
     pub fn decode(reader: *StreamReader) !PlayerPositionAndLook {
         return PlayerPositionAndLook{
-            .x = try reader.readFloat(f64),
-            .y = try reader.readFloat(f64),
-            .stance = try reader.readFloat(f64),
-            .z = try reader.readFloat(f64),
-            .yaw = try reader.readFloat(f32),
-            .pitch = try reader.readFloat(f32),
+            .x = try reader.readDouble(),
+            .y = try reader.readDouble(),
+            .stance = try reader.readDouble(),
+            .z = try reader.readDouble(),
+            .yaw = try reader.readFloat(),
+            .pitch = try reader.readFloat(),
             .on_ground = try reader.readBoolean(),
         };
     }
@@ -267,20 +267,21 @@ pub const NamedEntitySpawn = struct {
             .x = try reader.readInt(i32, .big),
             .y = try reader.readInt(i32, .big),
             .z = try reader.readInt(i32, .big),
-            .yaw = try reader.readInt(u8, .big),
-            .pitch = try reader.readInt(u8, .big),
+            .yaw = try reader.readByte(),
+            .pitch = try reader.readByte(),
             .current_item = try reader.readInt(u16, .big),
         };
     }
 
     pub fn encode(self: NamedEntitySpawn, writer: io.AnyWriter) !void {
+        std.debug.print("ENCODING NAMED ENTITY ASPAWN", .{});
         try writer.writeInt(u32, self.entity_id, .big);
         try writeString16(self.username, writer);
         try writer.writeInt(i32, self.x, .big);
         try writer.writeInt(i32, self.y, .big);
         try writer.writeInt(i32, self.z, .big);
-        try writer.writeInt(u8, self.yaw, .big);
-        try writer.writeInt(u8, self.pitch, .big);
+        try writer.writeByte(self.yaw);
+        try writer.writeByte(self.pitch);
         try writer.writeInt(u16, self.current_item, .big);
     }
 };
@@ -292,8 +293,8 @@ pub const EntityTeleport = struct {
     x: i32,
     y: i32,
     z: i32,
-    yaw: f32,
-    pitch: f32,
+    yaw: u8,
+    pitch: u8,
 
     pub fn decode(reader: *StreamReader) !EntityTeleport {
         return EntityTeleport{
@@ -301,8 +302,8 @@ pub const EntityTeleport = struct {
             .x = try reader.readInt(i32, .big),
             .y = try reader.readInt(i32, .big),
             .z = try reader.readInt(i32, .big),
-            .yaw = try reader.readFloat(f32),
-            .pitch = try reader.readFloat(f32),
+            .yaw = try reader.readByte(),
+            .pitch = try reader.readByte(),
         };
     }
 
@@ -311,8 +312,8 @@ pub const EntityTeleport = struct {
         try writer.writeInt(i32, self.x, .big);
         try writer.writeInt(i32, self.y, .big);
         try writer.writeInt(i32, self.z, .big);
-        try writer.writeInt(u32, @bitCast(self.yaw), .big);
-        try writer.writeInt(u32, @bitCast(self.pitch), .big);
+        try writer.writeByte(self.yaw);
+        try writer.writeByte(self.pitch);
     }
 };
 
