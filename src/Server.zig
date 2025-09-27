@@ -6,6 +6,7 @@ const proto = @import("protocol.zig");
 const mem = std.mem;
 const net = std.net;
 const posix = std.posix;
+const linux = std.os.linux;
 
 const Allocator = mem.Allocator;
 
@@ -15,32 +16,27 @@ const ServerConnection = @import("ServerConnection.zig");
 
 allocator: Allocator,
 
-polls: []posix.pollfd,
-
 connected: usize,
-connections: []ServerConnection,
-connection_polls: []posix.pollfd,
+
+connections_pool: std.heap.MemoryPool(ServerConnection),
+connections: []*ServerConnection,
 
 eid: u32 = 0,
 
 pub fn init(allocator: Allocator, max_clients: usize) !Self {
-    const polls = try allocator.alloc(posix.pollfd, max_clients + 1);
-    errdefer allocator.free(polls);
-
-    const connections = try allocator.alloc(ServerConnection, max_clients);
+    const connections = try allocator.alloc(*ServerConnection, max_clients);
     errdefer allocator.free(connections);
 
     return Self{
         .allocator = allocator,
-        .polls = polls,
         .connected = 0,
+        .connections_pool = .init(allocator),
         .connections = connections,
-        .connection_polls = polls[1..],
     };
 }
 
 pub fn deinit(self: *Self) void {
-    self.allocator.free(self.polls);
+    self.connections_pool.deinit();
     self.allocator.free(self.connections);
 }
 
@@ -54,109 +50,69 @@ pub fn run(self: *Self, address: net.Address) !void {
     try posix.bind(listener, &address.any, address.getOsSockLen());
     try posix.listen(listener, 128);
 
-    self.polls[0] = posix.pollfd{
-        .fd = listener,
-        .revents = 0,
-        .events = posix.POLL.IN,
-    };
+    const epfd = try posix.epoll_create1(0);
+    defer posix.close(epfd);
+
+    // Add the server socket listener to the EPOLL
+    {
+        var events = linux.epoll_event{ .events = linux.EPOLL.IN, .data = .{ .ptr = 0 } };
+        try posix.epoll_ctl(epfd, linux.EPOLL.CTL_ADD, listener, &events);
+    }
 
     while (true) {
         std.debug.print("Looped\n", .{});
 
-        _ = try posix.poll(self.polls[0 .. self.connected + 1], -1);
+        const ready_events = b: {
+            var ev_buf: [1024]linux.epoll_event = undefined;
+            const len = posix.epoll_wait(epfd, &ev_buf, 500);
+            break :b ev_buf[0..len];
+        };
 
-        // Accept new clients
-        if (self.polls[0].revents != 0) {
-            self.acceptClients(listener) catch |err| {
-                std.debug.print("Error accepting client: {}\n", .{err});
-            };
+        if (ready_events.len == 0) {
+            std.debug.print("Timeout\n", .{});
+            continue;
         }
 
-        // Handle new messages from clients
-        var i: usize = 0;
-        while (i < self.connected) {
-            const revents = self.connection_polls[i].revents;
-            if (revents == 0) {
-                i += 1;
-                continue;
-            }
+        for (ready_events) |ready| {
+            switch (ready.data.ptr) {
+                0 => try self.acceptClient(listener, epfd),
+                else => |ptr| {
+                    // const events = ready.events;
+                    const client: *ServerConnection = @ptrFromInt(ptr);
 
-            const client = &self.connections[i];
-            if (revents & posix.POLL.IN == posix.POLL.IN) {
-                const packet = client.readMessage() catch |err| switch (err) {
-                    error.NettyProtocol => {
-                        std.debug.print("Client {} is running a modern version of MC\n", .{client.address.getPort()});
-                        self.processModernClient(client) catch |err2| {
-                            std.debug.print("Failed to respond with ping to modern client due to error: {}\n", .{err2});
-                        };
-                        self.removeClient(i);
-                        i += 1;
-                        continue;
-                    },
-                    error.Disconnected => {
-                        std.debug.print("Client {} disconnected\n", .{client.address.getPort()});
-                        self.removeClient(i);
-                        i += 1;
-                        continue;
-                    },
-                    error.InvalidPacket => {
-                        std.debug.print("Client {} sent invalid packet\n", .{client.address.getPort()});
-                        const nb = client.serverbound_buffer;
-                        printBytes(nb.buffer[nb.read_head..nb.write_head]);
-                        self.removeClient(i);
-                        i += 1;
-                        continue;
-                    },
-                    error.EndOfStream => {
-                        i += 1;
-                        continue;
-                    },
-                    else => {
-                        std.debug.print("Client {} had error {}\n", .{
-                            client.address.getPort(),
-                            err,
-                        });
-                        continue;
-                    },
-                };
+                    const packet = client.readMessage() catch |err| switch (err) {
+                        error.NettyProtocol => {
+                            std.debug.print("Client {} is running a modern version of MC\n", .{client.address.getPort()});
+                            self.removeClient(client);
+                            continue;
+                        },
+                        error.Disconnected => {
+                            std.debug.print("Client {} disconnected\n", .{client.address.getPort()});
+                            self.removeClient(client);
+                            continue;
+                        },
+                        error.InvalidPacket => {
+                            std.debug.print("Client {} sent invalid packet\n", .{client.address.getPort()});
+                            const nb = client.serverbound_buffer;
+                            printBytes(nb.buffer[nb.read_head..nb.write_head]);
+                            self.removeClient(client);
+                            continue;
+                        },
+                        error.EndOfStream => continue,
+                        else => {
+                            std.debug.print("Client {} had error {}\n", .{
+                                client.address.getPort(),
+                                err,
+                            });
+                            continue;
+                        },
+                    };
 
-                try self.processPacket(packet, client);
+                    try self.processPacket(packet, client);
+                }
             }
         }
     }
-}
-
-fn processModernClient(self: *Self, client: *ServerConnection) !void {
-    const response =
-        \\{{
-        \\    "version": {{
-        \\        "name": "Minestalgia",
-        \\        "protocol": 0
-        \\    }},
-        \\    "players": {{
-        \\        "max": {d},
-        \\        "online": {d},
-        \\        "sample": [
-        \\            {{
-        \\                "name": "cakeless",
-        \\                "id": "0541ed27-7595-4e6a-9101-6c07f879b7b5"
-        \\            }}
-        \\        ]
-        \\    }},
-        \\    "description": {{
-        \\        "text": "Hello, world!"
-        \\    }},
-        \\    "favicon": "data:image/png;base64,<data>",
-        \\    "enforcesSecureChat": false
-        \\}}
-        \\
-    ;
-
-    std.debug.print(response, .{self.connected + 1, self.connected});
-
-    const buffer = client.serverbound_buffer;
-    const buffer_slice = buffer.buffer[buffer.read_head..buffer.write_head];
-    printBytes(buffer_slice);
 }
 
 fn processPacket(self: *Self, packet: proto.Packet, client: *ServerConnection) !void {
@@ -166,7 +122,7 @@ fn processPacket(self: *Self, packet: proto.Packet, client: *ServerConnection) !
         .keep_alive => try client.writeMessage(.{ .keep_alive = .{} }),
         .handshake => {
             try client.writeMessage(.{ .handshake = .{ .data = "-" } });
-            client.handshook = true;
+            client.stage = .play;
         },
         .login => |login| {
             const player = try self.allocator.create(Player);
@@ -231,7 +187,7 @@ fn processPacket(self: *Self, packet: proto.Packet, client: *ServerConnection) !
 
             for (0..15) |x| {
                 for (0..15) |y| {
-                    const a = try posix.write(client.socket, &.{
+                    _ = try posix.write(client.socket, &.{
                         0x33,
                         0x00, 0x00, 0x00, @as(u8, @intCast(x)) * 16, // x
                         0x00, 0x00, // y
@@ -242,8 +198,7 @@ fn processPacket(self: *Self, packet: proto.Packet, client: *ServerConnection) !
                         @truncate(chunk_data_compressed.len >> 8),
                         @truncate(chunk_data_compressed.len),
                     });
-                    const b = try posix.write(client.socket, chunk_data_compressed);
-                    std.debug.print("{} - {} - {}\n", .{ chunk_data_compressed.len, a, b });
+                    _ = try posix.write(client.socket, chunk_data_compressed);
                 }
             }
 
@@ -261,7 +216,7 @@ fn processPacket(self: *Self, packet: proto.Packet, client: *ServerConnection) !
                 .chat_message = .ofString("Hello from Zig!"),
             });
 
-            for (self.connections[0..self.connected]) |*target| {
+            for (self.connections[0..self.connected]) |target| {
                 if (target.player) |target_player| {
                     if (target_player.eid != player.eid) {
                         try target.writeMessage(.{ .named_entity_spawn = .{
@@ -310,7 +265,7 @@ fn processPlayPacket(self: *Self, packet: proto.Packet, player: *Player) !void {
                 return;
             }
 
-            for (self.connections[0..self.connected]) |*target| {
+            for (self.connections[0..self.connected]) |target| {
                 try target.writeMessage(.{ .chat_message = .ofString(message) });
             }
         },
@@ -395,44 +350,41 @@ fn processCommand(self: *Self, player: *Player, raw_command: []const u8) !void {
     }
 }
 
-fn acceptClients(self: *Self, listener: posix.socket_t) !void {
-    while (true) {
-        self.acceptClient(listener) catch |err| switch (err) {
-            error.WouldBlock => return,
-            else => return err,
-        };
-    }
-}
-
-fn acceptClient(self: *Self, listener: posix.socket_t) !void {
+fn acceptClient(self: *Self, listener: posix.socket_t, epfd: posix.fd_t) !void {
     var address: net.Address = undefined;
     var address_len: posix.socklen_t = @sizeOf(net.Address);
 
     const socket = try posix.accept(listener, &address.any, &address_len, posix.SOCK.NONBLOCK);
-    const client = try ServerConnection.init(self.allocator, socket, address);
+    errdefer posix.close(socket);
+
+    var client: *ServerConnection = try self.connections_pool.create();
+    client.* = try ServerConnection.init(self.allocator, socket, address);
+    errdefer client.deinit();
+
+    const ptr: usize = @intFromPtr(client);
+    var epev = linux.epoll_event{ .events = linux.EPOLL.IN, .data = .{ .ptr = ptr } };
+    try posix.epoll_ctl(epfd, linux.EPOLL.CTL_ADD, socket, &epev);
 
     self.connections[self.connected] = client;
-    self.connection_polls[self.connected] = posix.pollfd{
-        .fd = socket,
-        .revents = 0,
-        .events = posix.POLL.IN,
-    };
-
     self.connected += 1;
-
-    std.debug.print("Client {} connected\n", .{address});
 }
 
-fn removeClient(self: *Self, index: usize) void {
-    var client = self.connections[index];
+fn removeClient(self: *Self, client: *ServerConnection) void {
     posix.close(client.socket);
     client.deinit();
 
-    const last_index = self.connected - 1;
-    self.connections[index] = self.connections[last_index];
-    self.connection_polls[index] = self.connection_polls[last_index];
+    const idx = for (0..self.connected) |i| {
+        const target = self.connections[i];
+        if (target == client) {
+            break i;
+        }
+    } else {
+        std.debug.print("Client wasn't in array. Wtf\n", .{});
+        return;
+    };
 
-    self.connected = last_index;
+    self.connected -= 1;
+    self.connections[idx] = self.connections[self.connected];
 }
 
 fn nextEid(self: *Self) u32 {

@@ -15,11 +15,20 @@ const NetworkBuffer = @import("NetworkBuffer.zig");
 
 const BUFFER_SIZE = 8_192;
 
+const ConnectionStage = enum(u8) {
+    handshake,
+    play,
+
+    // Modern >=1.7.2 protocol
+    netty_handshake,
+    netty_status,
+};
+
 allocator: Allocator,
 
 socket: posix.socket_t,
 address: net.Address,
-handshook: bool = false,
+stage: ConnectionStage = .handshake,
 is_connected: bool = true,
 
 serverbound_buffer: NetworkBuffer,
@@ -58,8 +67,8 @@ pub fn readMessage(self: *Self) !proto.Packet {
 
     const buffer_slice = self.serverbound_buffer.buffer[self.serverbound_buffer.read_head..self.serverbound_buffer.write_head];
 
-    if (!self.handshook and buffer_slice[0] > 2) {
-        self.handshook = true;
+    if (self.stage == .handshake and buffer_slice[0] > 2) {
+        self.stage = .netty_handshake;
         return error.NettyProtocol;
     }
 
