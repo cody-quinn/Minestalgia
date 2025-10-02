@@ -114,6 +114,15 @@ pub fn run(self: *Self, address: net.Address) !void {
                 },
             }
         }
+
+        for (self.connections[0..self.connected]) |connection| {
+            connection.writeMessage(.{ .keep_alive = .{} }) catch {
+                std.debug.print("Error sending keep alive to client {}\n", .{
+                    connection.address.getPort(),
+                });
+                continue;
+            };
+        }
     }
 }
 
