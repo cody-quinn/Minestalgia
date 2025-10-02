@@ -73,43 +73,45 @@ pub fn run(self: *Self, address: net.Address) !void {
             continue;
         }
 
-        for (ready_events) |ready| {
+        events: for (ready_events) |ready| {
             switch (ready.data.ptr) {
                 0 => try self.acceptClient(listener, epfd),
                 else => |ptr| {
                     // const events = ready.events;
                     const client: *ServerConnection = @ptrFromInt(ptr);
 
-                    const packet = client.readMessage() catch |err| switch (err) {
-                        error.NettyProtocol => {
-                            std.debug.print("Client {} is running a modern version of MC\n", .{client.address.getPort()});
-                            self.removeClient(client);
-                            continue;
-                        },
-                        error.Disconnected => {
-                            std.debug.print("Client {} disconnected\n", .{client.address.getPort()});
-                            self.removeClient(client);
-                            continue;
-                        },
-                        error.InvalidPacket => {
-                            std.debug.print("Client {} sent invalid packet\n", .{client.address.getPort()});
-                            const nb = client.serverbound_buffer;
-                            printBytes(nb.buffer[nb.read_head..nb.write_head]);
-                            self.removeClient(client);
-                            continue;
-                        },
-                        error.EndOfStream => continue,
-                        else => {
-                            std.debug.print("Client {} had error {}\n", .{
-                                client.address.getPort(),
-                                err,
-                            });
-                            continue;
-                        },
-                    };
+                    while (true) {
+                        const packet = client.readMessage() catch |err| switch (err) {
+                            error.NettyProtocol => {
+                                std.debug.print("Client {} is running a modern version of MC\n", .{client.address.getPort()});
+                                self.removeClient(client);
+                                continue :events;
+                            },
+                            error.Disconnected => {
+                                std.debug.print("Client {} disconnected\n", .{client.address.getPort()});
+                                self.removeClient(client);
+                                continue :events;
+                            },
+                            error.InvalidPacket => {
+                                std.debug.print("Client {} sent invalid packet\n", .{client.address.getPort()});
+                                const nb = client.serverbound_buffer;
+                                printBytes(nb.buffer[nb.read_head..nb.write_head]);
+                                self.removeClient(client);
+                                continue :events;
+                            },
+                            error.EndOfStream => break,
+                            else => {
+                                std.debug.print("Client {} had error {}\n", .{
+                                    client.address.getPort(),
+                                    err,
+                                });
+                                continue :events;
+                            },
+                        };
 
-                    try self.processPacket(packet, client);
-                }
+                        try self.processPacket(packet, client);
+                    }
+                },
             }
         }
     }
