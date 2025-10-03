@@ -36,6 +36,23 @@ pub const SlabType = enum(u8) {
     cobblestone = 3,
 };
 
+pub const BlockMetadata = extern union {
+    /// For: Wool
+    color: Color,
+    /// For: Log, Leaves
+    wood_type: WoodType,
+    /// For: Tall grass
+    grass_type: GrassType,
+    /// For: Slabs
+    slab_type: SlabType,
+
+    comptime {
+        if (@sizeOf(BlockMetadata) != 1) {
+            @compileError("BlockMetadata must be only 1 byte");
+        }
+    }
+};
+
 pub const BlockId = enum(u8) {
     air = 0,
     stone = 1,

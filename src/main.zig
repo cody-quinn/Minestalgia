@@ -8,7 +8,7 @@ const Thread = std.Thread;
 const Allocator = mem.Allocator;
 
 const StreamReader = @import("StreamReader.zig");
-
+const Chunk = @import("world/Chunk.zig");
 const Server = @import("Server.zig");
 const ServerConnection = @import("ServerConnection.zig");
 
@@ -54,26 +54,31 @@ fn readMessage(socket: posix.socket_t, buf: []u8) ![]u8 {
 
 var chunk_data: [81_920]u8 = undefined;
 pub var chunk_data_compressed: []u8 = undefined;
+const mc = @import("mc.zig");
 fn hacky_create_chunk_data(alloc: Allocator) !void {
     @memset(&chunk_data, 0);
     @memset(chunk_data[49152..81920], 0xFF);
 
+    var chunk = try Chunk.init(alloc, 0, 0);
+
     for (0..16) |x| {
         for (0..10) |y| {
             for (0..16) |z| {
-                const index = y + (z * 128) + (x * 128 * 16);
-                chunk_data[index] = 1;
+                chunk.setBlock(x, y, z, .stone, null);
             }
         }
     }
 
-    for (3..13, 0..) |x, i| {
-        for (3..13, 0..) |z, j| {
-            const index = 10 + (z * 128) + (x * 128 * 16);
-            chunk_data[index] = @min(96, (@as(u8, @intCast(i)) * 10) + @as(u8, @intCast(j)) % 10);
-            chunk_data[index + 1] = 68;
+    for (0..15) |x| {
+        for (0..15) |z| {
+            chunk.setBlock(x, 10, z, .wool, .{ .color = @enumFromInt(x) });
+            chunk.setBlock(x, 11, z, .wool, .{ .color = @enumFromInt(z) });
         }
     }
+
+    @memcpy(chunk_data[0..128*16*16], @as([]u8, @ptrCast(&chunk.blocks)));
+    const m = 128*16*16;
+    @memcpy(chunk_data[m..m + 128*16*8], @as([]u8, @ptrCast(&chunk.block_metadata)));
 
     var ingress = std.io.fixedBufferStream(&chunk_data);
     var egress = try std.ArrayList(u8).initCapacity(alloc, 16 * 128 * 16);
