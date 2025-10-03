@@ -76,12 +76,16 @@ fn hacky_create_chunk_data(alloc: Allocator) !void {
         }
     }
 
-    @memcpy(chunk_data[0..128*16*16], @as([]u8, @ptrCast(&chunk.blocks)));
-    const m = 128*16*16;
-    @memcpy(chunk_data[m..m + 128*16*8], @as([]u8, @ptrCast(&chunk.block_metadata)));
+    @memcpy(chunk_data[0 .. 128 * 16 * 16], @as([]u8, @ptrCast(&chunk.blocks)));
+    const m = 128 * 16 * 16;
+    @memcpy(chunk_data[m .. m + 128 * 16 * 8], @as([]u8, @ptrCast(&chunk.block_metadata)));
 
     var ingress = std.io.fixedBufferStream(&chunk_data);
     var egress = try std.ArrayList(u8).initCapacity(alloc, 16 * 128 * 16);
     try std.compress.zlib.compress(ingress.reader(), egress.writer(), .{ .level = .default });
     chunk_data_compressed = try egress.toOwnedSlice();
+}
+
+test {
+    _ = @import("jvm/Random.zig");
 }
