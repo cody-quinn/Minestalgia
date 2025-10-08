@@ -15,6 +15,7 @@ pub fn init(seed: u64) Self {
 }
 
 pub fn next(self: *Self, bits: comptime_int) i32 {
+    comptime std.debug.assert(bits <= 48);
     self.seed = (self.seed *% multiplier +% increment) & mask;
     const result: u32 = @truncate(self.seed >> (48 - bits));
     return @bitCast(result);
@@ -22,14 +23,18 @@ pub fn next(self: *Self, bits: comptime_int) i32 {
 
 pub fn int(self: *Self, T: type) T {
     const bits = @bitSizeOf(T);
+    const SignedT = std.meta.Int(.signed, bits);
+
     if (bits > 64) {
         @compileError("Bit sizes greater than 64 unsupported");
     } else if (bits > 32) {
-        const lhs: T = @intCast(self.next(bits - 32));
-        const rhs: T = @intCast(self.next(32));
-        return @bitCast((lhs <<| 32) + rhs);
+        const lhs: i64 = self.next(bits - 32);
+        const rhs: i32 = self.next(32);
+        const result: SignedT = @truncate((lhs <<| 32) +% rhs);
+        return @bitCast(result);
     } else {
-        return (self.next(bits));
+        const result: SignedT = @truncate(self.next(bits));
+        return @bitCast(result);
     }
 }
 

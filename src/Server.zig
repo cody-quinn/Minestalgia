@@ -24,6 +24,8 @@ connections: []*ServerConnection,
 
 eid: u32 = 0,
 
+world_seed: u64 = 0,
+
 pub fn init(allocator: Allocator, max_clients: usize) !Self {
     const connections = try allocator.alloc(*ServerConnection, max_clients);
     errdefer allocator.free(connections);
@@ -200,14 +202,7 @@ fn processPacket(self: *Self, packet: proto.Packet, client: *ServerConnection) !
                 var chunk_z: i32 = -8;
                 while (chunk_z < 8) : (chunk_z += 1) {
                     var chunk = try Chunk.init(self.allocator, chunk_x, chunk_z);
-
-                    for (0..16) |x| {
-                        for (0..10) |y| {
-                            for (0..16) |z| {
-                                chunk.setBlock(x, y, z, .wool, .{ .color = .red });
-                            }
-                        }
-                    }
+                    @import("world/worldgen.zig").populateChunk(&chunk, self.world_seed);
 
                     try client.writeMessage(.{ .map_chunk = .ofChunk(&chunk) });
                 }
