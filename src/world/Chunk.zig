@@ -13,40 +13,39 @@ const blocks_per_chunk = 16 * 16 * 128;
 viewers: std.ArrayList(*Player),
 
 chunk_x: i32,
-chunk_y: i32,
+chunk_z: i32,
 
-blocks: [blocks_per_chunk]mc.BlockId,
-block_metadata: [blocks_per_chunk / 2]u8,
-block_lighting: [blocks_per_chunk / 2]u8,
-sky_lighting: [blocks_per_chunk / 2]u8,
+data: [81_920]u8 = [_]u8{0} ** 81_920,
 
-pub fn init(allocator: Allocator, chunk_x: i32, chunk_y: i32) !Self {
+pub fn init(allocator: Allocator, chunk_x: i32, chunk_z: i32) !Self {
     const viewers = try std.ArrayList(*Player).initCapacity(allocator, 64);
     errdefer viewers.deinit();
 
-    return Self{
+    var self = Self{
         .viewers = viewers,
         .chunk_x = chunk_x,
-        .chunk_y = chunk_y,
-        .blocks = .{ .air } ** blocks_per_chunk,
-        .block_metadata = .{ 0 } ** (blocks_per_chunk / 2),
-        .block_lighting = .{ 0 } ** (blocks_per_chunk / 2),
-        .sky_lighting = .{ 0 } ** (blocks_per_chunk / 2),
+        .chunk_z = chunk_z,
     };
+
+    @memset(&self.data, 0);
+    @memset(self.blockLighting(), 0xFF);
+    @memset(self.skyLighting(), 0xFF);
+
+    return self;
 }
 
 pub fn setBlock(self: *Self, x: anytype, y: anytype, z: anytype, block: mc.BlockId, opt_metadata: ?mc.BlockMetadata) void {
     const idx = coordsToIndex(x, y, z);
     const odd = idx & 1;
     const metadata: u8 = if (opt_metadata) |metadata| @bitCast(metadata) else 0;
-    self.blocks[idx] = block;
+    self.blocks()[idx] = (block);
 
     {
         // Set the metadata
-        const base = self.block_metadata[idx / 2];
+        const base = self.blockMetadata()[idx / 2];
         const lhs = base & (@as(u8, 0xF) <<| (odd * 4));
         const rhs = metadata <<| ((odd ^ 1) * 4);
-        self.block_metadata[idx / 2] = lhs | rhs;
+        self.blockMetadata()[idx / 2] = lhs | rhs;
     }
 
     for (self.viewers.items) |viewer| {
@@ -54,9 +53,37 @@ pub fn setBlock(self: *Self, x: anytype, y: anytype, z: anytype, block: mc.Block
     }
 }
 
-fn coordsToIndex(x: anytype, y: anytype, z: anytype) usize {
+pub fn getBlock(self: *Self, x: anytype, y: anytype, z: anytype) mc.BlockId {
+    const idx = coordsToIndex(x, y, z);
+    return self.blocks[idx];
+}
+
+pub fn getBlockMetadata(self: *Self, x: anytype, y: anytype, z: anytype) mc.BlockMetadata {
+    const idx = coordsToIndex(x, y, z);
+    const odd = idx & 1;
+    const metadata: u8 = (self.block_metadata[idx / 2] >> (4 * odd)) & 0xF;
+    return @bitCast(metadata);
+}
+
+inline fn coordsToIndex(x: anytype, y: anytype, z: anytype) usize {
     const rx: usize = @intCast(x);
     const ry: usize = @intCast(y);
     const rz: usize = @intCast(z);
     return ry + rz * 128 + rx * 128 * 16;
+}
+
+inline fn blocks(self: *Self) []mc.BlockId {
+    return @ptrCast(self.data[0..32_768]);
+}
+
+inline fn blockMetadata(self: *Self) []u8 {
+    return self.data[32_768..49_152];
+}
+
+inline fn blockLighting(self: *Self) []u8 {
+    return self.data[49_152..65_536];
+}
+
+inline fn skyLighting(self: *Self) []u8 {
+    return self.data[65_536..81_920];
 }

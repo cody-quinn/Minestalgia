@@ -8,6 +8,8 @@ const io = std.io;
 
 const mc = @import("mc.zig");
 
+const Chunk = @import("world/Chunk.zig");
+
 fn writeString16(str: []const u8, writer: io.AnyWriter) !void {
     try writer.writeInt(u16, @intCast(str.len), .big);
     for (str) |c| {
@@ -601,6 +603,45 @@ pub const EntityTeleport = struct {
     }
 };
 
+pub const MapChunk = struct {
+    pub const ID = 0x33;
+
+    x: i32,
+    y: i16,
+    z: i32,
+    size_x: u8 = 15,
+    size_y: u8 = 127,
+    size_z: u8 = 15,
+    chunk: *const Chunk,
+
+    pub fn ofChunk(chunk: *const Chunk) MapChunk {
+        return MapChunk{
+            .x = chunk.chunk_x * 16,
+            .y = 0,
+            .z = chunk.chunk_z * 16,
+            .chunk = chunk,
+        };
+    }
+
+    pub fn encode(self: MapChunk, writer: io.AnyWriter) !void {
+        try writer.writeInt(i32, self.x, .big);
+        try writer.writeInt(i16, self.y, .big);
+        try writer.writeInt(i32, self.z, .big);
+        try writer.writeByte(self.size_x);
+        try writer.writeByte(self.size_y);
+        try writer.writeByte(self.size_z);
+
+        // TODO: Do this without all this jibber jabber & allocation
+        var ingress = io.fixedBufferStream(&self.chunk.data); // TODO: don't use page allocator--better yet don't allocate
+        var egress = try std.ArrayList(u8).initCapacity(std.heap.page_allocator, 16 * 128 * 16);
+        defer egress.deinit();
+        try std.compress.zlib.compress(ingress.reader(), egress.writer(), .{ .level = .default });
+
+        try writer.writeInt(u32, @truncate(egress.items.len), .big);
+        try writer.writeAll(egress.items);
+    }
+};
+
 pub const CloseWindow = struct {
     pub const ID = 0x65;
 
@@ -642,6 +683,7 @@ pub const PacketId = enum(u8) {
     living_entity_spawn = LivingEntitySpawn.ID,
     painting_entity_spawn = PaintingEntitySpawn.ID,
     entity_teleport = EntityTeleport.ID,
+    map_chunk = MapChunk.ID,
     close_window = CloseWindow.ID,
 };
 
@@ -670,6 +712,7 @@ pub const Packet = union(PacketId) {
     living_entity_spawn: LivingEntitySpawn,
     painting_entity_spawn: PaintingEntitySpawn,
     entity_teleport: EntityTeleport,
+    map_chunk: MapChunk,
     close_window: CloseWindow,
 };
 
@@ -706,6 +749,7 @@ pub fn readPacket(reader: *StreamReader, alloc: std.mem.Allocator) !Packet {
         // GenericEntitySpawn
         // LivingEntitySpawn
         EntityTeleport.ID => .{ .entity_teleport = try EntityTeleport.decode(reader) },
+        // MapChunk
         CloseWindow.ID => .{ .close_window = try CloseWindow.decode(reader) },
         else => {
             std.debug.print("Read packet ID 0x{0X:0>2} ({0d})\n", .{packet_id});
@@ -735,6 +779,7 @@ pub fn writePacket(writer: io.AnyWriter, packet: Packet) !void {
         .item_entity_collect => try packet.item_entity_collect.encode(writer),
         .generic_entity_spawn => try packet.generic_entity_spawn.encode(writer),
         .living_entity_spawn => try packet.living_entity_spawn.encode(writer),
+        .map_chunk => try packet.map_chunk.encode(writer),
         .entity_teleport => try packet.entity_teleport.encode(writer),
         else => {
             std.debug.print("Write packet ID 0x{0X:0>2} ({0d})\n", .{@intFromEnum(packet)});

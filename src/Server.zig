@@ -13,6 +13,7 @@ const Allocator = mem.Allocator;
 const Player = @import("Player.zig");
 const StreamReader = @import("StreamReader.zig");
 const ServerConnection = @import("ServerConnection.zig");
+const Chunk = @import("world/Chunk.zig");
 
 allocator: Allocator,
 
@@ -127,8 +128,6 @@ pub fn run(self: *Self, address: net.Address) !void {
 }
 
 fn processPacket(self: *Self, packet: proto.Packet, client: *ServerConnection) !void {
-    const chunk_data_compressed = @import("main.zig").chunk_data_compressed;
-
     switch (packet) {
         .keep_alive => try client.writeMessage(.{ .keep_alive = .{} }),
         .handshake => {
@@ -196,20 +195,21 @@ fn processPacket(self: *Self, packet: proto.Packet, client: *ServerConnection) !
                 }
             }
 
-            for (0..15) |x| {
-                for (0..15) |y| {
-                    _ = try posix.write(client.socket, &.{
-                        0x33,
-                        0x00, 0x00, 0x00, @as(u8, @intCast(x)) * 16, // x
-                        0x00, 0x00, // y
-                        0x00, 0x00, 0x00, @as(u8, @intCast(y)) * 16, // z
-                        15, 127, 15, // size
-                        @truncate(chunk_data_compressed.len >> 24), // chunk data
-                        @truncate(chunk_data_compressed.len >> 16),
-                        @truncate(chunk_data_compressed.len >> 8),
-                        @truncate(chunk_data_compressed.len),
-                    });
-                    _ = try posix.write(client.socket, chunk_data_compressed);
+            var chunk_x: i32 = -8;
+            while (chunk_x < 8) : (chunk_x += 1) {
+                var chunk_z: i32 = -8;
+                while (chunk_z < 8) : (chunk_z += 1) {
+                    var chunk = try Chunk.init(self.allocator, chunk_x, chunk_z);
+
+                    for (0..16) |x| {
+                        for (0..10) |y| {
+                            for (0..16) |z| {
+                                chunk.setBlock(x, y, z, .wool, .{ .color = .red });
+                            }
+                        }
+                    }
+
+                    try client.writeMessage(.{ .map_chunk = .ofChunk(&chunk) });
                 }
             }
 
