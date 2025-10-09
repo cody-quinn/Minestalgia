@@ -38,11 +38,32 @@ pub fn int(self: *Self, T: type) T {
     }
 }
 
+pub fn intBounded(self: *Self, T: type, bound: i32) T {
+    const bits = @bitSizeOf(T);
+    const SignedT = std.meta.Int(.signed, bits);
+
+    const value = self.next(bits - 1);
+    const m = bound - 1;
+    if ((bound & m) == 0) {
+        const result: SignedT = @truncate((@as(i64, bound) * @as(i64, value)) >> 31);
+        return @bitCast(result);
+    } else {
+        var u = value;
+        var r: i32 = undefined;
+        while (u - b: {
+            r = @mod(u, bound);
+            break :b r;
+        } + m < 0) {
+            u = self.next(bits - 1);
+        }
+        return r;
+    }
+}
+
 pub fn float(self: *Self, T: type) T {
     return switch (T) {
         f32 => @as(T, @floatFromInt(self.next(24))) / @as(T, 1 << 24),
-        f64 => @as(T, @floatFromInt((@as(i64, @intCast(self.next(26))) << 27) + self.next(27)))
-            / @as(T, @floatFromInt(1 << 53)),
+        f64 => @as(T, @floatFromInt((@as(i64, @intCast(self.next(26))) << 27) + self.next(27))) / @as(T, @floatFromInt(1 << 53)),
         else => @compileError("Unsupported float type"),
     };
 }
@@ -61,6 +82,21 @@ test "Random i32 matches Random#nextInt" {
     var rand = Self.init(0);
     for (expected) |i| {
         try expectEqual(i, rand.int(i32));
+    }
+}
+
+test "Random i32 bounded matches Random#nextInt" {
+    const expected = [_]i32{
+        1360,
+        5948,
+        8029,
+        6447,
+        3515,
+    };
+
+    var rand = Self.init(0);
+    for (expected) |i| {
+        try expectEqual(i, rand.intBounded(i32, 10_000));
     }
 }
 
