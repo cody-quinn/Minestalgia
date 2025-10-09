@@ -7,8 +7,9 @@ pub fn populateChunk(chunk: *Chunk, world_seed: u64) void {
     const noise = PerlinNoise.init(&random);
 
     for (0..16) |x| {
-        for (0..128) |y| {
-            for (0..16) |z| {
+        for (0..16) |z| {
+            chunk.setBlock(x, 0, z, .glass, null);
+            for (1..128) |y| {
                 const rx = @as(i32, @intCast(x)) + chunk.chunk_x * 16;
                 const rz = @as(i32, @intCast(z)) + chunk.chunk_z * 16;
 
@@ -17,9 +18,10 @@ pub fn populateChunk(chunk: *Chunk, world_seed: u64) void {
                     @as(f64, @floatFromInt(y)),
                     @as(f64, @floatFromInt(rz)),
                     .{
-                        .scale_x = 684.412 / 10_000.0,
-                        .scale_y = 684.412 / 10_000.0,
-                        .scale_z = 684.412 / 10_000.0,
+                        // Scale
+                        .x = 684.412 / 10_000.0,
+                        .y = 684.412 / 10_000.0,
+                        .z = 684.412 / 10_000.0,
                     },
                 );
 

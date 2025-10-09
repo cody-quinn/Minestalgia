@@ -58,8 +58,6 @@ pub fn flushBuffer(self: *Self, socket: posix.socket_t) !void {
     const initial_read_head = self.read_head;
     errdefer self.read_head = initial_read_head;
 
-    std.debug.print("WRITING {} BYTES\n", .{self.write_head - self.read_head});
-
     while (self.read_head < self.write_head) {
         const buffer_slice = self.buffer[self.read_head..self.write_head];
         const length = posix.write(socket, buffer_slice) catch |err| {

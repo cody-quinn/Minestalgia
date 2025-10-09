@@ -13,7 +13,11 @@ const Allocator = mem.Allocator;
 const Player = @import("Player.zig");
 const StreamReader = @import("StreamReader.zig");
 const ServerConnection = @import("ServerConnection.zig");
+
 const Chunk = @import("world/Chunk.zig");
+const worldgen = @import("world/worldgen.zig");
+
+const world_size = 32;
 
 allocator: Allocator,
 
@@ -24,17 +28,35 @@ connections: []*ServerConnection,
 
 eid: u32 = 0,
 
-world_seed: u64 = 0,
+world_seed: u64,
+chunks: std.ArrayList(Chunk),
 
-pub fn init(allocator: Allocator, max_clients: usize) !Self {
+pub fn init(allocator: Allocator, max_clients: usize, world_seed: u64) !Self {
     const connections = try allocator.alloc(*ServerConnection, max_clients);
     errdefer allocator.free(connections);
+
+    var timer = try std.time.Timer.start();
+    var chunks = std.ArrayList(Chunk).init(allocator);
+
+    for (0..world_size * world_size) |i| {
+        const x = @as(i32, @intCast(i % world_size)) - world_size / 2;
+        const z = @as(i32, @intCast(i / world_size)) - world_size / 2;
+        std.debug.print("Generating {}, {}\n", .{x, z});
+        const chunk = try chunks.addOne();
+        chunk.* = try Chunk.init(allocator, x, z);
+        worldgen.populateChunk(chunk, world_seed);
+    }
+
+    const time = timer.read();
+    std.debug.print("Time to generate chunks: {}.{}ms\n", .{time / 1_000_000, time % 1000});
 
     return Self{
         .allocator = allocator,
         .connected = 0,
         .connections_pool = .init(allocator),
         .connections = connections,
+        .world_seed = world_seed,
+        .chunks = chunks,
     };
 }
 
@@ -144,9 +166,9 @@ fn processPacket(self: *Self, packet: proto.Packet, client: *ServerConnection) !
             player.username_len = login.username.len;
             client.player = player;
 
-            player.x = 60.0;
-            player.y = 32.0;
-            player.z = 60.0;
+            player.x = 0.0;
+            player.y = 128.0;
+            player.z = 0.0;
 
             try client.writeMessage(.{ .login = .{
                 .data = player.eid,
@@ -186,27 +208,17 @@ fn processPacket(self: *Self, packet: proto.Packet, client: *ServerConnection) !
                 });
             }
 
-            for (0..15) |x| {
-                for (0..15) |y| {
-                    _ = try posix.write(client.socket, &.{
-                        0x32,
-                        0x00, 0x00, 0x00, @as(u8, @intCast(x)), // x
-                        0x00, 0x00, 0x00, @as(u8, @intCast(y)), // y
-                        0x01,
-                    });
-                }
+            var timer = try std.time.Timer.start();
+            for (self.chunks.items) |chunk| {
+                try client.writeMessage(.{ .prepare_chunk = .{
+                    .chunk_x = chunk.chunk_x,
+                    .chunk_z = chunk.chunk_z,
+                    .action = .load,
+                } });
+                try client.writeMessage(.{ .map_chunk = .ofChunk(&chunk) });
             }
-
-            var chunk_x: i32 = -8;
-            while (chunk_x < 8) : (chunk_x += 1) {
-                var chunk_z: i32 = -8;
-                while (chunk_z < 8) : (chunk_z += 1) {
-                    var chunk = try Chunk.init(self.allocator, chunk_x, chunk_z);
-                    @import("world/worldgen.zig").populateChunk(&chunk, self.world_seed);
-
-                    try client.writeMessage(.{ .map_chunk = .ofChunk(&chunk) });
-                }
-            }
+            const time = timer.read();
+            std.debug.print("Time to send all chunk packets: {}.{}ms\n", .{time / 1_000_000, time % 1000});
 
             try client.writeMessage(.{ .player_position_and_look = .{
                 .x = player.x,

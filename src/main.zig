@@ -31,8 +31,7 @@ pub fn main() !void {
 
     const address = try net.Address.parseIp("127.0.0.1", 25565);
 
-    var server = try Server.init(alloc, 1023);
-    server.world_seed = args.world_seed;
+    var server = try Server.init(alloc, 1023, args.world_seed);
     defer server.deinit();
     try server.run(address);
 }

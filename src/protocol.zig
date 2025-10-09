@@ -603,6 +603,23 @@ pub const EntityTeleport = struct {
     }
 };
 
+pub const PrepareChunk = struct {
+    pub const ID = 0x032;
+
+    chunk_x: i32,
+    chunk_z: i32,
+    action: enum(u8) {
+        unload = 0,
+        load = 1,
+    },
+
+    pub fn encode(self: PrepareChunk, writer: io.AnyWriter) !void {
+        try writer.writeInt(i32, self.chunk_x, .big);
+        try writer.writeInt(i32, self.chunk_z, .big);
+        try writer.writeByte(@intFromEnum(self.action));
+    }
+};
+
 pub const MapChunk = struct {
     pub const ID = 0x33;
 
@@ -632,10 +649,23 @@ pub const MapChunk = struct {
         try writer.writeByte(self.size_z);
 
         // TODO: Do this without all this jibber jabber & allocation
+        var timer = try std.time.Timer.start();
         var ingress = io.fixedBufferStream(&self.chunk.data); // TODO: don't use page allocator--better yet don't allocate
         var egress = try std.ArrayList(u8).initCapacity(std.heap.page_allocator, 16 * 128 * 16);
         defer egress.deinit();
-        try std.compress.zlib.compress(ingress.reader(), egress.writer(), .{ .level = .default });
+        const time1 = timer.lap();
+        try std.compress.zlib.compress(ingress.reader(), egress.writer(), .{ .level = .fast });
+        const time = timer.read();
+        std.debug.print(
+            \\Sending chunk {}, {}
+            \\Time to prepare to compress packet: {}.{}ms
+            \\Time to compress chunk packet: {}.{}ms
+            \\
+        , .{
+            self.x, self.z,
+            time1 / 1_000_000, time1 % 1000,
+            time / 1_000_000, time % 1000
+        });
 
         try writer.writeInt(u32, @truncate(egress.items.len), .big);
         try writer.writeAll(egress.items);
@@ -683,6 +713,7 @@ pub const PacketId = enum(u8) {
     living_entity_spawn = LivingEntitySpawn.ID,
     painting_entity_spawn = PaintingEntitySpawn.ID,
     entity_teleport = EntityTeleport.ID,
+    prepare_chunk = PrepareChunk.ID,
     map_chunk = MapChunk.ID,
     close_window = CloseWindow.ID,
 };
@@ -712,6 +743,7 @@ pub const Packet = union(PacketId) {
     living_entity_spawn: LivingEntitySpawn,
     painting_entity_spawn: PaintingEntitySpawn,
     entity_teleport: EntityTeleport,
+    prepare_chunk: PrepareChunk,
     map_chunk: MapChunk,
     close_window: CloseWindow,
 };
@@ -749,6 +781,7 @@ pub fn readPacket(reader: *StreamReader, alloc: std.mem.Allocator) !Packet {
         // GenericEntitySpawn
         // LivingEntitySpawn
         EntityTeleport.ID => .{ .entity_teleport = try EntityTeleport.decode(reader) },
+        // PrepareChunk
         // MapChunk
         CloseWindow.ID => .{ .close_window = try CloseWindow.decode(reader) },
         else => {
@@ -779,6 +812,7 @@ pub fn writePacket(writer: io.AnyWriter, packet: Packet) !void {
         .item_entity_collect => try packet.item_entity_collect.encode(writer),
         .generic_entity_spawn => try packet.generic_entity_spawn.encode(writer),
         .living_entity_spawn => try packet.living_entity_spawn.encode(writer),
+        .prepare_chunk => try packet.prepare_chunk.encode(writer),
         .map_chunk => try packet.map_chunk.encode(writer),
         .entity_teleport => try packet.entity_teleport.encode(writer),
         else => {

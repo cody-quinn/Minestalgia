@@ -13,21 +13,22 @@ const math = std.math;
 const Random = @import("../../jvm/Random.zig");
 
 permutations: [512]u8,
-x_modifier: f64,
-y_modifier: f64,
-z_modifier: f64,
+rx: f64,
+ry: f64,
+rz: f64,
 
-pub const Options = struct {
-    scale_x: f64 = 1.0,
-    scale_y: f64 = 1.0,
-    scale_z: f64 = 1.0,
-    exponent: f64 = 1.0,
+pub const Scale = struct {
+    x: f64 = 1.0,
+    y: f64 = 1.0,
+    z: f64 = 1.0,
+    exp: f64 = 1.0,
 };
 
 pub fn init(random: *Random) Self {
-    const x = random.float(f64) * 256.0;
-    const y = random.float(f64) * 256.0;
-    const z = random.float(f64) * 256.0;
+    // Generate some random numbers based on the seed that will always offset the position
+    const rx = random.float(f64) * 256.0;
+    const ry = random.float(f64) * 256.0;
+    const rz = random.float(f64) * 256.0;
 
     var permutations: [512]u8 = undefined;
 
@@ -46,16 +47,43 @@ pub fn init(random: *Random) Self {
 
     return Self{
         .permutations = permutations,
-        .x_modifier = x,
-        .y_modifier = y,
-        .z_modifier = z,
+        .rx = rx,
+        .ry = ry,
+        .rz = rz,
     };
 }
 
-pub fn noise3D(self: *const Self, ix: f64, iy: f64, iz: f64, options: Options) f64 {
-    var x = ix * options.scale_x + self.x_modifier;
-    var y = iy * options.scale_y + self.y_modifier;
-    var z = iz * options.scale_z + self.z_modifier;
+pub fn noise2D(self: *const Self, ix: f64, iz: f64, scale: Scale) f64 {
+    var x = ix * scale.x + self.rx;
+    var z = iz * scale.z + self.rz;
+
+    const X: usize = @intCast(@as(i32, @intFromFloat(@floor(x))) & 255);
+    const Z: usize = @intCast(@as(i32, @intFromFloat(@floor(z))) & 255);
+
+    x -= @floor(x);
+    z -= @floor(z);
+
+    const u = fade(x);
+    const w = fade(z);
+
+    const A  = self.permutations[X];
+    const AA = self.permutations[A] + Z;
+    const B  = self.permutations[X + 1];
+    const BA = self.permutations[B] + Z;
+
+    return lerp(
+        w,
+        lerp(u, grad(self.permutations[AA], x  , 0  , z),
+                grad(self.permutations[BA], x-1, 0  , z)),
+        lerp(u, grad(self.permutations[AA+1], x  , 0  , z-1),
+                grad(self.permutations[BA+1], x-1, 0  , z-1)),
+    );
+}
+
+pub fn noise3D(self: *const Self, ix: f64, iy: f64, iz: f64, scale: Scale) f64 {
+    var x = ix * scale.x + self.rx;
+    var y = iy * scale.y + self.ry;
+    var z = iz * scale.z + self.rz;
 
     const X: usize = @intCast(@as(i32, @intFromFloat(@floor(x))) & 255);
     const Y: usize = @intCast(@as(i32, @intFromFloat(@floor(y))) & 255);
