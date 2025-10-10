@@ -1,5 +1,7 @@
 const Self = @This();
 
+// zig fmt: off
+
 // Minecraft Beta 1.7.3 uses the "Improved Noise" by Ken Perlin with a single modification. The modification is that an
 // additional randomly generated modifier based on world seed is added to the x, y, and z values.
 //
@@ -71,13 +73,11 @@ pub fn noise2D(self: *const Self, ix: f64, iz: f64, scale: Scale) f64 {
     const B  = self.permutations[X + 1];
     const BA = self.permutations[B] + Z;
 
-    return lerp(
-        w,
-        lerp(u, grad(self.permutations[AA], x  , 0  , z),
-                grad(self.permutations[BA], x-1, 0  , z)),
-        lerp(u, grad(self.permutations[AA+1], x  , 0  , z-1),
-                grad(self.permutations[BA+1], x-1, 0  , z-1)),
-    );
+    return
+        lerp(w, lerp(u, grad(self.permutations[AA]  , x  , 0, z),
+                        grad(self.permutations[BA]  , x-1, 0, z)),
+                lerp(u, grad(self.permutations[AA+1], x  , 0, z-1),
+                        grad(self.permutations[BA+1], x-1, 0, z-1)));
 }
 
 pub fn noise3D(self: *const Self, ix: f64, iy: f64, iz: f64, scale: Scale) f64 {
@@ -105,21 +105,15 @@ pub fn noise3D(self: *const Self, ix: f64, iy: f64, iz: f64, scale: Scale) f64 {
     const BA = self.permutations[B] + Z;
     const BB = self.permutations[B + 1] + Z;
 
-    return lerp(
-        w,
-        lerp(v,
-            lerp(u, grad(self.permutations[AA], x  , y  , z),
-                    grad(self.permutations[BA], x-1, y  , z)),
-            lerp(u, grad(self.permutations[AB], x  , y-1, z),
-                    grad(self.permutations[BB], x-1, y-1, z))
-        ),
-        lerp(v,
-            lerp(u, grad(self.permutations[AA+1], x  , y  , z-1),
-                    grad(self.permutations[BA+1], x-1, y  , z-1)),
-            lerp(u, grad(self.permutations[AB+1], x  , y-1, z-1),
-                    grad(self.permutations[BB+1], x-1, y-1, z-1))
-        ),
-    );
+    return
+        lerp(w, lerp(v, lerp(u, grad(self.permutations[AA], x  , y  , z),
+                                grad(self.permutations[BA], x-1, y  , z)),
+                        lerp(u, grad(self.permutations[AB], x  , y-1, z),
+                                grad(self.permutations[BB], x-1, y-1, z))),
+                lerp(v, lerp(u, grad(self.permutations[AA+1], x  , y  , z-1),
+                                grad(self.permutations[BA+1], x-1, y  , z-1)),
+                        lerp(u, grad(self.permutations[AB+1], x  , y-1, z-1),
+                                grad(self.permutations[BB+1], x-1, y-1, z-1))));
 }
 
 fn fade(t: f64) f64 {

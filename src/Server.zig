@@ -17,12 +17,11 @@ const ServerConnection = @import("ServerConnection.zig");
 const Chunk = @import("world/Chunk.zig");
 const worldgen = @import("world/worldgen.zig");
 
-const world_size = 32;
-
 allocator: Allocator,
 
-connected: usize,
+running: bool = true,
 
+connected: usize,
 connections_pool: std.heap.MemoryPool(ServerConnection),
 connections: []*ServerConnection,
 
@@ -31,19 +30,25 @@ eid: u32 = 0,
 world_seed: u64,
 chunks: std.ArrayList(Chunk),
 
-pub fn init(allocator: Allocator, max_clients: usize, world_seed: u64) !Self {
+pub fn init(allocator: Allocator, max_clients: usize, world_seed: u64, world_size: u64) !Self {
     const connections = try allocator.alloc(*ServerConnection, max_clients);
     errdefer allocator.free(connections);
 
-    var timer = try std.time.Timer.start();
-    var chunks = std.ArrayList(Chunk).init(allocator);
+    var connections_pool = std.heap.MemoryPool(ServerConnection).init(allocator);
+    errdefer connections_pool.deinit();
 
+    var chunks = std.ArrayList(Chunk).init(allocator);
+    errdefer chunks.deinit();
+
+    // Generate the chunks
+    var timer = try std.time.Timer.start();
     for (0..world_size * world_size) |i| {
-        const x = @as(i32, @intCast(i % world_size)) - world_size / 2;
-        const z = @as(i32, @intCast(i / world_size)) - world_size / 2;
+        const x = @as(i32, @intCast(i % world_size)) - @as(i32, @intCast(world_size / 2));
+        const z = @as(i32, @intCast(i / world_size)) - @as(i32, @intCast(world_size / 2));
         std.debug.print("Generating {}, {}\n", .{x, z});
         const chunk = try chunks.addOne();
         chunk.* = try Chunk.init(allocator, x, z);
+        errdefer chunk.deinit();
         worldgen.populateChunk(chunk, world_seed);
     }
 
@@ -53,7 +58,7 @@ pub fn init(allocator: Allocator, max_clients: usize, world_seed: u64) !Self {
     return Self{
         .allocator = allocator,
         .connected = 0,
-        .connections_pool = .init(allocator),
+        .connections_pool = connections_pool,
         .connections = connections,
         .world_seed = world_seed,
         .chunks = chunks,
@@ -61,6 +66,18 @@ pub fn init(allocator: Allocator, max_clients: usize, world_seed: u64) !Self {
 }
 
 pub fn deinit(self: *Self) void {
+    for (self.connections[0..self.connected]) |conn| {
+        if (conn.player) |player| {
+            self.allocator.destroy(player);
+        }
+        conn.deinit();
+    }
+
+    for (self.chunks.items) |*chunk| {
+        chunk.deinit();
+    }
+
+    self.chunks.deinit();
     self.connections_pool.deinit();
     self.allocator.free(self.connections);
 }
@@ -84,7 +101,10 @@ pub fn run(self: *Self, address: net.Address) !void {
         try posix.epoll_ctl(epfd, linux.EPOLL.CTL_ADD, listener, &events);
     }
 
-    while (true) {
+    var packet_arena = std.heap.ArenaAllocator.init(self.allocator);
+    defer packet_arena.deinit();
+
+    while (self.running) {
         std.debug.print("Looped\n", .{});
 
         const ready_events = b: {
@@ -106,7 +126,7 @@ pub fn run(self: *Self, address: net.Address) !void {
                     const client: *ServerConnection = @ptrFromInt(ptr);
 
                     while (true) {
-                        const packet = client.readMessage() catch |err| switch (err) {
+                        const packet = client.readMessage(packet_arena.allocator()) catch |err| switch (err) {
                             error.NettyProtocol => {
                                 std.debug.print("Client {} is running a modern version of MC\n", .{client.address.getPort()});
                                 self.removeClient(client);
@@ -148,6 +168,9 @@ pub fn run(self: *Self, address: net.Address) !void {
                 continue;
             };
         }
+
+        // Reset the packet memory arena
+        _ = packet_arena.reset(.retain_capacity);
     }
 }
 
@@ -209,13 +232,13 @@ fn processPacket(self: *Self, packet: proto.Packet, client: *ServerConnection) !
             }
 
             var timer = try std.time.Timer.start();
-            for (self.chunks.items) |chunk| {
+            for (self.chunks.items) |*chunk| {
                 try client.writeMessage(.{ .prepare_chunk = .{
                     .chunk_x = chunk.chunk_x,
                     .chunk_z = chunk.chunk_z,
                     .action = .load,
                 } });
-                try client.writeMessage(.{ .map_chunk = .ofChunk(&chunk) });
+                try client.writeMessage(.{ .map_chunk = .ofChunk(chunk) });
             }
             const time = timer.read();
             std.debug.print("Time to send all chunk packets: {}.{}ms\n", .{time / 1_000_000, time % 1000});
@@ -309,6 +332,7 @@ fn processCommand(self: *Self, player: *Player, raw_command: []const u8) !void {
         unknown,
         help,
         npc,
+        stop,
     }, command_str) orelse .unknown;
 
     switch (command) {
@@ -319,7 +343,7 @@ fn processCommand(self: *Self, player: *Player, raw_command: []const u8) !void {
         },
         .help => {
             try player.connection.writeMessage(.{
-                .chat_message = .ofString("Available commands: unknown, help, npc"),
+                .chat_message = .ofString("Available commands: unknown, help, npc, stop"),
             });
         },
         .npc => {
@@ -364,6 +388,13 @@ fn processCommand(self: *Self, player: *Player, raw_command: []const u8) !void {
                     .{@as(u8, @intCast(npcEid >> 4)) + '0'} ++
                     .{@as(u8, @intCast(npcEid & 0xF)) + '0'}),
             });
+        },
+        .stop => {
+            try player.connection.writeMessage(.{
+                .chat_message = .ofString("Stopping the server"),
+            });
+
+            self.running = false;
         },
     }
 }

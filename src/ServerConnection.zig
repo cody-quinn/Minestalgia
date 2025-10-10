@@ -24,8 +24,6 @@ const ConnectionStage = enum(u8) {
     netty_status,
 };
 
-allocator: Allocator,
-
 socket: posix.socket_t,
 address: net.Address,
 stage: ConnectionStage = .handshake,
@@ -44,7 +42,6 @@ pub fn init(allocator: Allocator, socket: posix.socket_t, address: net.Address) 
     errdefer clientbound_buffer.deinit();
 
     return Self{
-        .allocator = allocator,
         .socket = socket,
         .address = address,
         .serverbound_buffer = serverbound_buffer,
@@ -62,7 +59,7 @@ pub fn deinit(self: *Self) void {
     self.clientbound_buffer.deinit();
 }
 
-pub fn readMessage(self: *Self) !proto.Packet {
+pub fn readMessage(self: *Self, allocator: Allocator) !proto.Packet {
     try self.serverbound_buffer.fillBuffer(self.socket);
 
     const buffer_slice = self.serverbound_buffer.buffer[self.serverbound_buffer.read_head..self.serverbound_buffer.write_head];
@@ -73,7 +70,7 @@ pub fn readMessage(self: *Self) !proto.Packet {
     }
 
     var reader = StreamReader.fromBuffer(buffer_slice);
-    const packet = try proto.readPacket(&reader, self.allocator);
+    const packet = try proto.readPacket(&reader, allocator);
 
     self.serverbound_buffer.read_head += reader.head;
 

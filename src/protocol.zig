@@ -629,9 +629,9 @@ pub const MapChunk = struct {
     size_x: u8 = 15,
     size_y: u8 = 127,
     size_z: u8 = 15,
-    chunk: *const Chunk,
+    chunk: *Chunk,
 
-    pub fn ofChunk(chunk: *const Chunk) MapChunk {
+    pub fn ofChunk(chunk: *Chunk) MapChunk {
         return MapChunk{
             .x = chunk.chunk_x * 16,
             .y = 0,
@@ -648,27 +648,9 @@ pub const MapChunk = struct {
         try writer.writeByte(self.size_y);
         try writer.writeByte(self.size_z);
 
-        // TODO: Do this without all this jibber jabber & allocation
-        var timer = try std.time.Timer.start();
-        var ingress = io.fixedBufferStream(&self.chunk.data); // TODO: don't use page allocator--better yet don't allocate
-        var egress = try std.ArrayList(u8).initCapacity(std.heap.page_allocator, 16 * 128 * 16);
-        defer egress.deinit();
-        const time1 = timer.lap();
-        try std.compress.zlib.compress(ingress.reader(), egress.writer(), .{ .level = .fast });
-        const time = timer.read();
-        std.debug.print(
-            \\Sending chunk {}, {}
-            \\Time to prepare to compress packet: {}.{}ms
-            \\Time to compress chunk packet: {}.{}ms
-            \\
-        , .{
-            self.x, self.z,
-            time1 / 1_000_000, time1 % 1000,
-            time / 1_000_000, time % 1000
-        });
-
-        try writer.writeInt(u32, @truncate(egress.items.len), .big);
-        try writer.writeAll(egress.items);
+        const data = try self.chunk.getCompressedData();
+        try writer.writeInt(u32, @truncate(data.len), .big);
+        try writer.writeAll(data);
     }
 };
 
@@ -678,7 +660,7 @@ pub const CloseWindow = struct {
     window_id: u8,
 
     pub fn decode(reader: *StreamReader) !CloseWindow {
-        return CloseWindow {
+        return CloseWindow{
             .window_id = try reader.readByte(),
         };
     }

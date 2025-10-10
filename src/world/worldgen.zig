@@ -1,3 +1,5 @@
+const std = @import("std");
+
 const Random = @import("../jvm/Random.zig");
 const PerlinNoise = @import("noise/PerlinNoise.zig");
 const Chunk = @import("Chunk.zig");
@@ -31,4 +33,11 @@ pub fn populateChunk(chunk: *Chunk, world_seed: u64) void {
             }
         }
     }
+
+    chunk.recompressChunk() catch {
+        std.debug.print("Failed to compress chunk {}, {}.\n", .{
+            chunk.chunk_x,
+            chunk.chunk_z,
+        });
+    };
 }

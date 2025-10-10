@@ -24,26 +24,23 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
 
-    // Making an arena allocator for packets
-    var arena = std.heap.ArenaAllocator.init(gpa.allocator());
-    defer arena.deinit();
-    const alloc = arena.allocator();
-
     const address = try net.Address.parseIp("127.0.0.1", 25565);
 
-    var server = try Server.init(alloc, 1023, args.world_seed);
+    var server = try Server.init(gpa.allocator(), 1023, args.world_seed, args.world_size);
     defer server.deinit();
     try server.run(address);
 }
 
 const CliArguments = struct {
     world_seed: u64 = 0,
+    world_size: u64 = 8,
 };
 
 const CliParserStage = enum {
     base,
     help,
     world_seed,
+    world_size,
 };
 
 fn parseArgs() !CliArguments {
@@ -52,6 +49,8 @@ fn parseArgs() !CliArguments {
         .{ "-h", .help },
         .{ "--seed", .world_seed },
         .{ "-s", .world_seed },
+        .{ "--size", .world_size },
+        .{ "-S", .world_size },
     });
 
     var iter = std.process.args();
@@ -77,6 +76,7 @@ fn parseArgs() !CliArguments {
                 \\
                 \\  -h, --help            Print command-line usage
                 \\  -s, --seed [integer]  Set the world seed
+                \\  -S, --size [integer]  Set the world size in chunks
                 \\
             , .{exe_path});
             return error.Terminate;
@@ -84,6 +84,11 @@ fn parseArgs() !CliArguments {
         .world_seed => {
             const str_value = iter.next() orelse break :parse;
             args.world_seed = try std.fmt.parseInt(u64, str_value, 10);
+            continue :parse .base;
+        },
+        .world_size => {
+            const str_value = iter.next() orelse break :parse;
+            args.world_size = try std.fmt.parseInt(u64, str_value, 10);
             continue :parse .base;
         },
     }

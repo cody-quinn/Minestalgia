@@ -17,14 +17,23 @@ chunk_z: i32,
 
 data: [81_920]u8 = [_]u8{0} ** 81_920,
 
+// Cache compressed version of chunk
+compressed_data: std.ArrayList(u8),
+compressed_valid: bool,
+
 pub fn init(allocator: Allocator, chunk_x: i32, chunk_z: i32) !Self {
     const viewers = try std.ArrayList(*Player).initCapacity(allocator, 64);
     errdefer viewers.deinit();
+
+    const compressed_data = try std.ArrayList(u8).initCapacity(allocator, 2048);
+    errdefer compressed_data.deinit();
 
     var self = Self{
         .viewers = viewers,
         .chunk_x = chunk_x,
         .chunk_z = chunk_z,
+        .compressed_data = compressed_data,
+        .compressed_valid = false,
     };
 
     @memset(&self.data, 0);
@@ -32,6 +41,11 @@ pub fn init(allocator: Allocator, chunk_x: i32, chunk_z: i32) !Self {
     @memset(self.skyLighting(), 0xFF);
 
     return self;
+}
+
+pub fn deinit(self: *const Self) void {
+    self.viewers.deinit();
+    self.compressed_data.deinit();
 }
 
 pub fn setBlock(self: *Self, x: anytype, y: anytype, z: anytype, block: mc.BlockId, opt_metadata: ?mc.BlockMetadata) void {
@@ -48,6 +62,8 @@ pub fn setBlock(self: *Self, x: anytype, y: anytype, z: anytype, block: mc.Block
         self.blockMetadata()[idx / 2] = lhs | rhs;
     }
 
+    self.compressed_valid = false;
+
     for (self.viewers.items) |viewer| {
         _ = viewer;
     }
@@ -63,6 +79,21 @@ pub fn getBlockMetadata(self: *Self, x: anytype, y: anytype, z: anytype) mc.Bloc
     const odd = idx & 1;
     const metadata: u8 = (self.block_metadata[idx / 2] >> (4 * odd)) & 0xF;
     return @bitCast(metadata);
+}
+
+pub fn recompressChunk(self: *Self) !void {
+    self.compressed_data.clearRetainingCapacity();
+    var ingress = std.io.fixedBufferStream(&self.data);
+    try std.compress.zlib.compress(ingress.reader(), self.compressed_data.writer(), .{});
+    self.compressed_valid = true;
+}
+
+pub fn getCompressedData(self: *Self) ![]u8 {
+    if (!self.compressed_valid) {
+        try self.recompressChunk();
+    }
+
+    return self.compressed_data.items;
 }
 
 inline fn coordsToIndex(x: anytype, y: anytype, z: anytype) usize {
