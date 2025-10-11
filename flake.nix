@@ -36,6 +36,8 @@
             zls_0_14
           ];
         };
+
+        packages.default = pkgs.callPackage ./package.nix { };
       }
     );
 }
