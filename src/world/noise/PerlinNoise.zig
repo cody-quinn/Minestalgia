@@ -19,13 +19,6 @@ rx: f64,
 ry: f64,
 rz: f64,
 
-pub const Scale = struct {
-    x: f64 = 1.0,
-    y: f64 = 1.0,
-    z: f64 = 1.0,
-    exp: f64 = 1.0,
-};
-
 pub fn init(random: *Random) Self {
     // Generate some random numbers based on the seed that will always offset the position
     const rx = random.float(f64) * 256.0;
@@ -55,9 +48,9 @@ pub fn init(random: *Random) Self {
     };
 }
 
-pub fn noise2D(self: *const Self, ix: f64, iz: f64, scale: Scale) f64 {
-    var x = ix * scale.x + self.rx;
-    var z = iz * scale.z + self.rz;
+pub fn noise2D(self: *const Self, ix: f64, iz: f64, scale_x: f64, scale_z: f64) f64 {
+    var x = ix * scale_x + self.rx;
+    var z = iz * scale_z + self.rz;
 
     const X: usize = @intCast(@as(i32, @intFromFloat(@floor(x))) & 255);
     const Z: usize = @intCast(@as(i32, @intFromFloat(@floor(z))) & 255);
@@ -80,10 +73,10 @@ pub fn noise2D(self: *const Self, ix: f64, iz: f64, scale: Scale) f64 {
                         grad(self.permutations[BA+1], x-1, 0, z-1)));
 }
 
-pub fn noise3D(self: *const Self, ix: f64, iy: f64, iz: f64, scale: Scale) f64 {
-    var x = ix * scale.x + self.rx;
-    var y = iy * scale.y + self.ry;
-    var z = iz * scale.z + self.rz;
+pub fn noise3D(self: *const Self, ix: f64, iy: f64, iz: f64, scale_x: f64, scale_y: f64, scale_z: f64) f64 {
+    var x = ix * scale_x + self.rx;
+    var y = iy * scale_y + self.ry;
+    var z = iz * scale_z + self.rz;
 
     const X: usize = @intCast(@as(i32, @intFromFloat(@floor(x))) & 255);
     const Y: usize = @intCast(@as(i32, @intFromFloat(@floor(y))) & 255);

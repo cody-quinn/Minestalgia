@@ -45,7 +45,6 @@ pub fn init(allocator: Allocator, max_clients: usize, world_seed: u64, world_siz
     for (0..world_size * world_size) |i| {
         const x = @as(i32, @intCast(i % world_size)) - @as(i32, @intCast(world_size / 2));
         const z = @as(i32, @intCast(i / world_size)) - @as(i32, @intCast(world_size / 2));
-        std.debug.print("Generating {}, {}\n", .{x, z});
         const chunk = try chunks.addOne();
         chunk.* = try Chunk.init(allocator, x, z);
         errdefer chunk.deinit();
@@ -105,8 +104,6 @@ pub fn run(self: *Self, address: net.Address) !void {
     defer packet_arena.deinit();
 
     while (self.running) {
-        std.debug.print("Looped\n", .{});
-
         const ready_events = b: {
             var ev_buf: [1024]linux.epoll_event = undefined;
             const len = posix.epoll_wait(epfd, &ev_buf, 500);
@@ -190,7 +187,7 @@ fn processPacket(self: *Self, packet: proto.Packet, client: *ServerConnection) !
             client.player = player;
 
             player.x = 0.0;
-            player.y = 128.0;
+            player.y = 50.0;
             player.z = 0.0;
 
             try client.writeMessage(.{ .login = .{
@@ -201,9 +198,9 @@ fn processPacket(self: *Self, packet: proto.Packet, client: *ServerConnection) !
             } });
 
             try client.writeMessage(.{ .spawn_position = .{
-                .x = 120,
-                .y = 64,
-                .z = 120,
+                .x = @intFromFloat(player.x),
+                .y = @intFromFloat(player.y),
+                .z = @intFromFloat(player.z),
             } });
 
             try client.writeMessage(.{ .time_update = .{
@@ -247,7 +244,7 @@ fn processPacket(self: *Self, packet: proto.Packet, client: *ServerConnection) !
                 .x = player.x,
                 .y = player.y,
                 .z = player.z,
-                .stance = 33.5,
+                .stance = player.y + 0.62,
                 .yaw = 0.0,
                 .pitch = 0.0,
                 .on_ground = false,
