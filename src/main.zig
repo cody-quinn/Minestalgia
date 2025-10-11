@@ -24,7 +24,7 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
 
-    const address = try net.Address.parseIp("127.0.0.1", 25565);
+    const address = net.Address.initIp4(args.host, args.port);
 
     var server = try Server.init(gpa.allocator(), 1023, args.world_seed, args.world_size);
     defer server.deinit();
@@ -32,6 +32,8 @@ pub fn main() !void {
 }
 
 const CliArguments = struct {
+    host: [4]u8 = [_]u8{ 127, 0, 0, 1 },
+    port: u16 = 25565,
     world_seed: u64 = 0,
     world_size: u64 = 8,
 };
@@ -39,6 +41,8 @@ const CliArguments = struct {
 const CliParserStage = enum {
     base,
     help,
+    bind,
+    port,
     world_seed,
     world_size,
 };
@@ -47,6 +51,10 @@ fn parseArgs() !CliArguments {
     const flags = std.StaticStringMap(CliParserStage).initComptime(.{
         .{ "--help", .help },
         .{ "-h", .help },
+        .{ "--bind", .bind },
+        .{ "-b", .bind },
+        .{ "--port", .port },
+        .{ "-p", .port },
         .{ "--seed", .world_seed },
         .{ "-s", .world_seed },
         .{ "--size", .world_size },
@@ -75,11 +83,46 @@ fn parseArgs() !CliArguments {
                 \\Options:
                 \\
                 \\  -h, --help            Print command-line usage
-                \\  -s, --seed [integer]  Set the world seed
+                \\  -b, --bind [address]  Bind the server to a IP       (default: 127.0.0.1)
+                \\  -p, --port [integer]  Bind the server to a port     (default: 25565)
+                \\
+                \\World Options:
+                \\
+                \\  -s, --seed [integer]  Set the world seed            (default: 0)
                 \\  -S, --size [integer]  Set the world size in chunks
                 \\
             , .{exe_path});
             return error.Terminate;
+        },
+        .bind => {
+            const address = iter.next() orelse break :parse;
+            var address_iter = std.mem.splitScalar(u8, address, '.');
+            for (0..4) |i| {
+                const address_part = address_iter.next() orelse {
+                    std.debug.print("IP address must contain 4 parts\n", .{});
+                    return error.Terminate;
+                };
+
+                args.host[i] = std.fmt.parseInt(u8, address_part, 10) catch {
+                    std.debug.print("IP address must be a valid IPv4 address\n", .{});
+                    return error.Terminate;
+                };
+            }
+
+            if (address_iter.next() != null) {
+                std.debug.print("IP address must contain exactly 4 parts\n", .{});
+                return error.Terminate;
+            }
+
+            continue :parse .base;
+        },
+        .port => {
+            const str_value = iter.next() orelse break :parse;
+            args.port = std.fmt.parseInt(u16, str_value, 10) catch {
+                std.debug.print("Port must be a valid number between 0 and 65535\n", .{});
+                return error.Terminate;
+            };
+            continue :parse .base;
         },
         .world_seed => {
             const str_value = iter.next() orelse break :parse;
