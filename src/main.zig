@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 
 const mem = std.mem;
@@ -21,12 +22,24 @@ pub fn main() !void {
         std.process.exit(0);
     };
 
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
+    // Determine the allocator based on whether it's a debug build, links libc, or not
+    var dbg_allocator: ?std.heap.DebugAllocator(.{}) = null;
+    defer if (dbg_allocator) |*dbg| {
+        _ = dbg.deinit();
+    };
+
+    const allocator =
+        if (builtin.mode == .Debug or builtin.mode == .ReleaseSafe) b: {
+            dbg_allocator = .init;
+            break :b dbg_allocator.?.allocator();
+        } else if (builtin.link_libc)
+            std.heap.c_allocator
+        else
+            std.heap.smp_allocator;
 
     const address = net.Address.initIp4(args.host, args.port);
 
-    var server = try Server.init(gpa.allocator(), 1023, args.world_seed, args.world_size);
+    var server = try Server.init(allocator, 1023, args.world_seed, args.world_size);
     defer server.deinit();
     try server.run(address);
 }
@@ -48,6 +61,22 @@ const CliParserStage = enum {
 };
 
 fn parseArgs() !CliArguments {
+    const help_message =
+        \\Usage: {s} [options]
+        \\
+        \\Options:
+        \\
+        \\  -h, --help            Print command-line usage
+        \\  -b, --bind [address]  Bind the server to a IP       (default: 127.0.0.1)
+        \\  -p, --port [integer]  Bind the server to a port     (default: 25565)
+        \\
+        \\World Options:
+        \\
+        \\  -s, --seed [integer]  Set the world seed            (default: 0)
+        \\  -S, --size [integer]  Set the world size in chunks
+        \\
+    ;
+
     const flags = std.StaticStringMap(CliParserStage).initComptime(.{
         .{ "--help", .help },
         .{ "-h", .help },
@@ -77,21 +106,7 @@ fn parseArgs() !CliArguments {
             continue :parse target_stage;
         },
         .help => {
-            std.debug.print(
-                \\Usage: {s} [options]
-                \\
-                \\Options:
-                \\
-                \\  -h, --help            Print command-line usage
-                \\  -b, --bind [address]  Bind the server to a IP       (default: 127.0.0.1)
-                \\  -p, --port [integer]  Bind the server to a port     (default: 25565)
-                \\
-                \\World Options:
-                \\
-                \\  -s, --seed [integer]  Set the world seed            (default: 0)
-                \\  -S, --size [integer]  Set the world size in chunks
-                \\
-            , .{exe_path});
+            std.debug.print(help_message, .{exe_path});
             return error.Terminate;
         },
         .bind => {
