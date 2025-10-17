@@ -1,3 +1,8 @@
-.idea
-.zig-cache
-zig-out
+# Editors
+/.idea
+/.zed
+
+# Zig & Nix
+/.zig-cache
+/zig-out
+/result
