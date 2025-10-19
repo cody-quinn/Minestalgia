@@ -1,45 +1,37 @@
 const std = @import("std");
+const assert = std.debug.assert;
 
 const mc = @import("../mc.zig");
+const noise = @import("noise/noise.zig");
 
 const Random = @import("../jvm/Random.zig");
-const PerlinNoise = @import("noise/PerlinNoise.zig");
-const OctaveNoise = @import("noise/OctaveNoise.zig");
 const Chunk = @import("Chunk.zig");
 
+var initialized: bool = false;
+
+var min_limit_noise: noise.OctaveNoise(16) = undefined;
+var max_limit_noise: noise.OctaveNoise(16) = undefined;
+var main_noise: noise.OctaveNoise(8) = undefined;
+
+/// Unknown purpose. Initialized to move random along
+var f_6739260: noise.OctaveNoise(4) = undefined;
+
+var surface_noise: noise.OctaveNoise(4) = undefined;
+var scale_noise: noise.OctaveNoise(10) = undefined;
+var depth_noise: noise.OctaveNoise(16) = undefined;
+
+var forest_noise: noise.OctaveNoise(8) = undefined;
+
 pub fn populateChunk(chunk: *Chunk, world_seed: u64) void {
-    var random = Random.init(world_seed);
-    const noise = OctaveNoise.init(std.heap.page_allocator, 6, &random) catch {
-        std.debug.print("Failed to create octave noise generator", .{});
-        return;
-    };
-    defer noise.deinit(std.heap.page_allocator);
+    if (!initialized) initializeNoise(world_seed);
+
+    // Get a heightmap.
+    // Size of heightmap is width * height * depth. Depth is always 5.
+    var heightmap: [16 * 16 * 5]f64 = undefined;
+    populateHeightmap(&heightmap, chunk.chunk_x, chunk.chunk_z);
 
     for (0..16) |x| {
         for (0..16) |z| {
-            const scale = 684.412 / 10_000.0;
-            const rx: f64 = @floatFromInt(@as(i32, @intCast(x)) + chunk.chunk_x * 16);
-            const rz: f64 = @floatFromInt(@as(i32, @intCast(z)) + chunk.chunk_z * 16);
-            const raw_height = noise.noise2D(rx, rz, scale, scale, 2.0);
-
-            const height: i32 = @intFromFloat(@max(@min((raw_height + 15) * 2, 48.0), 2.0));
-            var y: i32 = height;
-            while (y > 0) : (y -= 1) {
-                var block: mc.BlockId = .stone;
-                if (y == height) {
-                    block = .grass;
-                } else if (y > height - 3) {
-                    block = .dirt;
-                }
-                chunk.setBlock(x, y, z, block, null);
-            }
-
-            for (1..62) |i| {
-                if (noise.noise3D(rx + 8375, @floatFromInt(i), rz + 9582, scale, scale, scale, 1.0) > 3) {
-                    chunk.setBlock(x, i, z, .air, null);
-                }
-            }
-
             chunk.setBlock(x, 0, z, .glass, null);
         }
     }
@@ -50,4 +42,64 @@ pub fn populateChunk(chunk: *Chunk, world_seed: u64) void {
             chunk.chunk_z,
         });
     };
+}
+
+fn populateHeightmap(heightmap: []f64, chunk_x: i32, chunk_z: i32) void {
+    const width = 5;
+    const height = 17;
+    const depth = 5;
+
+    var depth_noise_buf: [width * depth]f64 = undefined;
+    var main_noise_buf: [width * height * depth]f64 = undefined;
+    var min_limit_noise_buf: [width * height * depth]f64 = undefined;
+    var max_limit_noise_buf: [width * height * depth]f64 = undefined;
+
+    {
+        // Fill the buffers
+        const scale_xz: f64 = 684.412;
+        const scale_y: f64 = 684.412;
+        const x: f64 = @floatFromInt(chunk_x * 4);
+        const z: f64 = @floatFromInt(chunk_z * 4);
+
+        depth_noise.fill2D(&depth_noise_buf, x, z, width, depth, 200.0, 200.0);
+        main_noise.fill3D(&main_noise_buf, x, 0.0, z, width, height, depth, scale_xz / 80.0, scale_y / 160.0, scale_xz / 80.0);
+        min_limit_noise.fill3D(&min_limit_noise_buf, x, 0.0, z, width, height, depth, scale_xz, scale_y, scale_xz);
+        max_limit_noise.fill3D(&max_limit_noise_buf, x, 0.0, z, width, height, depth, scale_xz, scale_y, scale_xz);
+    }
+
+    const k14 = 16 / width;
+
+    for (0..width) |x| {
+        const m16 = x * k14 + k14 / 2;
+
+        for (0..depth) |z| {
+            const o18 = z * k14 + k14 / 2;
+
+            for (0..height) |y| {
+                // const ix: i32 = (chunk_x * 4) + @as(i32, @intCast(x));
+                // const iz: i32 = (chunk_z * 4) + @as(i32, @intCast(z));
+
+                _ = y;
+                _ = m16;
+                _ = o18;
+            }
+        }
+    }
+
+    _ = heightmap;
+}
+
+fn initializeNoise(world_seed: u64) void {
+    var random = Random.init(world_seed);
+
+    min_limit_noise = .init(&random);
+    max_limit_noise = .init(&random);
+    main_noise = .init(&random);
+    f_6739260 = .init(&random);
+    surface_noise = .init(&random);
+    scale_noise = .init(&random);
+    depth_noise = .init(&random);
+    forest_noise = .init(&random);
+
+    initialized = true;
 }

@@ -1,7 +1,5 @@
 const Self = @This();
 
-// zig fmt: off
-
 // Minecraft Beta 1.7.3 uses the "Improved Noise" by Ken Perlin with a single modification. The modification is that an
 // additional randomly generated modifier based on world seed is added to the x, y, and z values.
 //
@@ -61,17 +59,19 @@ pub fn noise2D(self: *const Self, ix: f64, iz: f64, scale_x: f64, scale_z: f64) 
     const u = fade(x);
     const w = fade(z);
 
-    const A  = self.permutations[X];
+    const A = self.permutations[X];
     const AA = self.permutations[A] + Z;
-    const B  = self.permutations[X + 1];
+    const B = self.permutations[X + 1];
     const BA = self.permutations[B] + Z;
 
+    // zig fmt: off
     return
         lerp(w, lerp(u, grad(self.permutations[AA]  , x  , 0, z),
                         grad(self.permutations[BA]  , x-1, 0, z)),
                 lerp(u, grad(self.permutations[AA+1], x  , 0, z-1),
                         grad(self.permutations[BA+1], x-1, 0, z-1)));
 }
+// zig fmt: on
 
 pub fn noise3D(self: *const Self, ix: f64, iy: f64, iz: f64, scale_x: f64, scale_y: f64, scale_z: f64) f64 {
     var x = ix * scale_x + self.rx;
@@ -91,13 +91,14 @@ pub fn noise3D(self: *const Self, ix: f64, iy: f64, iz: f64, scale_x: f64, scale
     const v = fade(y);
     const w = fade(z);
 
-    const A  = self.permutations[X] + Y;
+    const A = self.permutations[X] + Y;
     const AA = self.permutations[A] + Z;
     const AB = self.permutations[A + 1] + Z;
-    const B  = self.permutations[X + 1] + Y;
+    const B = self.permutations[X + 1] + Y;
     const BA = self.permutations[B] + Z;
     const BB = self.permutations[B + 1] + Z;
 
+    // zig fmt: off
     return
         lerp(w, lerp(v, lerp(u, grad(self.permutations[AA], x  , y  , z),
                                 grad(self.permutations[BA], x-1, y  , z)),
@@ -108,6 +109,7 @@ pub fn noise3D(self: *const Self, ix: f64, iy: f64, iz: f64, scale_x: f64, scale
                         lerp(u, grad(self.permutations[AB+1], x  , y-1, z-1),
                                 grad(self.permutations[BB+1], x-1, y-1, z-1))));
 }
+// zig fmt: on
 
 fn fade(t: f64) f64 {
     return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
