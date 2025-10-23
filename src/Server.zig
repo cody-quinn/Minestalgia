@@ -187,7 +187,7 @@ fn processPacket(self: *Self, packet: proto.Packet, client: *ServerConnection) !
             client.player = player;
 
             player.x = 0.0;
-            player.y = 50.0;
+            player.y = 128.0;
             player.z = 0.0;
 
             try client.writeMessage(.{ .login = .{

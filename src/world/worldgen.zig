@@ -45,48 +45,53 @@ pub fn populateChunk(chunk: *Chunk, world_seed: u64) void {
     var heightmap: [hm_width * hm_height * hm_depth]f64 = undefined;
     populateHeightMap(&heightmap, chunk.chunk_x, chunk.chunk_z);
 
-    const xz_mul = 16 / hm_width;
-    const y_mul = 128 / hm_height;
-    for (0..hm_width) |x| {
-        const local_x: i32 = @intCast(x * xz_mul + xz_mul / 2);
-        for (0..hm_height) |y| {
-            const local_y: i32 = @intCast(y * y_mul + y_mul / 2);
-            for (0..hm_depth) |z| {
-                const local_z: i32 = @intCast(z * xz_mul + xz_mul / 2);
-                const index = x * hm_height * hm_depth + z * hm_height + y;
-
-                if (heightmap[index] > 5.7) {
-                    chunk.setBlock(local_x, local_y, local_z, .stone, null);
-                    chunk.setBlock(local_x - 1, local_y, local_z, .stone, null);
-                    chunk.setBlock(local_x + 1, local_y, local_z, .stone, null);
-                    chunk.setBlock(local_x, local_y, local_z - 1, .stone, null);
-                    chunk.setBlock(local_x, local_y, local_z + 1, .stone, null);
-                    chunk.setBlock(local_x - 1, local_y, local_z - 1, .stone, null);
-                    chunk.setBlock(local_x + 1, local_y, local_z + 1, .stone, null);
-                    chunk.setBlock(local_x + 1, local_y, local_z - 1, .stone, null);
-                    chunk.setBlock(local_x - 1, local_y, local_z + 1, .stone, null);
-                }
-            }
-        }
-    }
-
     for (0..4) |x| {
         for (0..4) |z| {
             for (0..16) |y| {
                 var c000 = heightmap[(x * hm_depth + z) * hm_height + y];
                 var c010 = heightmap[(x * hm_depth + z + 1) * hm_height + y];
-                var c100 = heightmap[(x + 1 * hm_depth + z) * hm_height + y];
-                var c110 = heightmap[(x + 1 * hm_depth + z + 1) * hm_height + y];
+                var c100 = heightmap[((x + 1) * hm_depth + z) * hm_height + y];
+                var c110 = heightmap[((x + 1) * hm_depth + z + 1) * hm_height + y];
 
-                const c001 = (heightmap[(x * hm_depth + z) * hm_height + y] - c000) * 0.125;
-                const c011 = (heightmap[(x * hm_depth + z + 1) * hm_height + y] - c010) * 0.125;
-                const c101 = (heightmap[(x + 1 * hm_depth + z) * hm_height + y] - c100) * 0.125;
-                const c111 = (heightmap[(x + 1 * hm_depth + z + 1) * hm_height + y] - c110) * 0.125;
+                const c001 = (heightmap[(x * hm_depth + z) * hm_height + y + 1] - c000) * 0.125;
+                const c011 = (heightmap[(x * hm_depth + z + 1) * hm_height + y + 1] - c010) * 0.125;
+                const c101 = (heightmap[((x + 1) * hm_depth + z) * hm_height + y + 1] - c100) * 0.125;
+                const c111 = (heightmap[((x + 1) * hm_depth + z + 1) * hm_height + y + 1] - c110) * 0.125;
 
-                for (0..8) |ym| {
-                    for (0..4) |xzm| {
-                        _ = ym;
-                        _ = xzm;
+                for (0..8) |interp_y| {
+                    var c00 = c000;
+                    var c10 = c010;
+
+                    const c00_step = (c100 - c000) * 0.25;
+                    const c10_step = (c110 - c010) * 0.25;
+
+                    for (0..4) |interp_x| {
+                        var c0 = c00;
+
+                        const c0_step = (c10 - c00) * 0.25;
+
+                        for (0..4) |interp_z| {
+                            const local_x = interp_x + x * 4;
+                            const local_y = interp_y + y * 8;
+                            const local_z = interp_z + z * 4;
+
+                            var block: mc.BlockId = .air;
+
+                            if (local_y < 64) {
+                                block = .water_still;
+                            }
+
+                            if (c0 > 0.0) {
+                                block = .stone;
+                            }
+
+                            chunk.data[local_x <<| 11 | local_z <<| 7 | local_y] = @intFromEnum(block);
+
+                            c0 += c0_step;
+                        }
+
+                        c00 += c00_step;
+                        c10 += c10_step;
                     }
 
                     c000 += c001;
@@ -100,7 +105,9 @@ pub fn populateChunk(chunk: *Chunk, world_seed: u64) void {
 
     for (0..16) |x| {
         for (0..16) |z| {
-            chunk.setBlock(x, 0, z, .glass, null);
+            if (chunk.getBlock(x, 0, z) == .air) {
+                chunk.setBlock(x, 0, z, .glass, null);
+            }
         }
     }
 
@@ -146,7 +153,7 @@ fn populateHeightMap(heightmap: []f64, chunk_x: i32, chunk_z: i32) void {
             humidity = 1.0 - math.pow(f64, 1.0 - humidity * temp, 3);
 
             // Calculate scale
-            var scale = clamp((scale_noise_buf[z_index] + 256.0) / 512.0 * humidity, 0.0, 1.0) + 0.5;
+            var scale = clamp((scale_noise_buf[z_index] + 256.0) / 512.0 * humidity, 0.0, 1.0);
 
             // Calculate depth
             var depth = depth_noise_buf[z_index] / 8000.0;
@@ -164,6 +171,7 @@ fn populateHeightMap(heightmap: []f64, chunk_x: i32, chunk_z: i32) void {
                 depth = @min(depth, 1.0) / 8.0;
             }
 
+            scale += 0.5;
             depth = @as(comptime_float, hm_height) / 2.0 + (depth * hm_height / 16.0) * 4.0;
 
             for (0..hm_height) |y| {

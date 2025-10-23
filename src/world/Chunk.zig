@@ -71,7 +71,7 @@ pub fn setBlock(self: *Self, x: anytype, y: anytype, z: anytype, block: mc.Block
 
 pub fn getBlock(self: *Self, x: anytype, y: anytype, z: anytype) mc.BlockId {
     const idx = coordsToIndex(x, y, z);
-    return self.blocks[idx];
+    return self.blocks()[idx];
 }
 
 pub fn getBlockMetadata(self: *Self, x: anytype, y: anytype, z: anytype) mc.BlockMetadata {

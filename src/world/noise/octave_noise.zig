@@ -50,7 +50,7 @@ pub fn OctaveNoise(Noise: type, sample_count: comptime_int) type {
             assert(size_x * size_z <= buffer.len);
             for (0..size_x) |ox| {
                 for (0..size_z) |oz| {
-                    const idx = ox * size_z + oz;
+                    const idx = oz + ox * size_z;
                     const x: f64 = ix + @as(f64, @floatFromInt(ox));
                     const z: f64 = iz + @as(f64, @floatFromInt(oz));
                     buffer[idx] = self.noise2D(x, z, scale_x, scale_z);
@@ -78,9 +78,9 @@ pub fn OctaveNoise(Noise: type, sample_count: comptime_int) type {
         pub fn fill3D(self: *const Self, buffer: []f64, ix: f64, iy: f64, iz: f64, size_x: usize, size_y: usize, size_z: usize, scale_x: f64, scale_y: f64, scale_z: f64) void {
             assert(size_x * size_y * size_z <= buffer.len);
             for (0..size_x) |ox| {
-                for (0..size_y) |oy| {
-                    for (0..size_z) |oz| {
-                        const idx = ox * size_z * size_y + oy * size_z + oz;
+                for (0..size_z) |oz| {
+                    for (0..size_y) |oy| {
+                        const idx = oy + oz * size_y + ox * size_y * size_z;
                         const x: f64 = ix + @as(f64, @floatFromInt(ox));
                         const y: f64 = iy + @as(f64, @floatFromInt(oy));
                         const z: f64 = iz + @as(f64, @floatFromInt(oz));
