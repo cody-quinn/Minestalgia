@@ -24,8 +24,8 @@ const gradient_table = [12][3]f64{
     .{ 0, -1, 1 },  .{ 0, 1, -1 },  .{ 0, -1, -1 },
 };
 
-const f2 = 0.5 * (@sqrt(3.0) - 1.0);
-const g2 = (3.0 - @sqrt(3.0)) / 6.0;
+const f2: f64 = 0.5 * (@sqrt(3.0) - 1.0);
+const g2: f64 = (3.0 - @sqrt(3.0)) / 6.0;
 
 permutations: [512]u8,
 rx: f64,
@@ -67,19 +67,19 @@ pub fn noise2D(self: *const Self, ix: f64, iz: f64, scale_x: f64, scale_z: f64) 
     const zs = floor(z + s);
 
     const t = @as(f64, @floatFromInt(xs + zs)) * g2;
-    const x0 = x - (xs - t);
-    const z0 = z - (zs - t);
+    const x0 = x - (@as(f64, @floatFromInt(xs)) - t);
+    const z0 = z - (@as(f64, @floatFromInt(zs)) - t);
 
-    const i = if (x0 > z0) 1 else 0;
-    const j = if (x0 > z0) 0 else 1;
+    const i: usize = if (x0 > z0) 1 else 0;
+    const j: usize = if (x0 > z0) 0 else 1;
 
-    const x1 = x0 - i + g2;
-    const z1 = z0 - j + g2;
+    const x1 = x0 - @as(f64, @floatFromInt(i)) + g2;
+    const z1 = z0 - @as(f64, @floatFromInt(j)) + g2;
     const x2 = x0 - 1.0 + 2.0 * g2;
     const z2 = z0 - 1.0 + 2.0 * g2;
 
-    const x_hash = xs & 0xFF;
-    const z_hash = zs & 0xFF;
+    const x_hash: usize = @intCast(xs & 0xFF);
+    const z_hash: usize = @intCast(zs & 0xFF);
 
     const gi0: u8 = self.permutations[x_hash + self.permutations[z_hash]] % 12;
     const gi1: u8 = self.permutations[x_hash + i + self.permutations[z_hash + j]] % 12;
