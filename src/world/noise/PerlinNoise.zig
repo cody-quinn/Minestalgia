@@ -1,7 +1,8 @@
 const Self = @This();
 
-// Minecraft Beta 1.7.3 uses the "Improved Noise" by Ken Perlin with a single modification. The modification is that an
-// additional randomly generated modifier based on world seed is added to the x, y, and z values.
+// Minecraft Beta 1.7.3 uses the "Improved Noise" by Ken Perlin with a single modification. The
+// modification is that an additional randomly generated modifier based on world seed is added to
+// the x, y, and z values.
 //
 // Implementation based on:
 // - https://mrl.cs.nyu.edu/~perlin/noise/
@@ -11,6 +12,8 @@ const std = @import("std");
 const math = std.math;
 
 const Random = @import("../../jvm/Random.zig");
+
+pub const OCTAVE_MOD_NUMERATOR: f64 = 1.0;
 
 permutations: [512]u8,
 rx: f64,

@@ -468,3 +468,77 @@ pub const LivingEntityType = enum(u8) {
     squid = 94,
     wolf = 95,
 };
+
+pub const Biome = enum(u8) {
+    // Rainy
+    rainforest,
+    swampland,
+    seasonal_forest,
+    forest,
+    savanna,
+    shrubland,
+    plains,
+
+    // Rainy & Snowy
+    taiga,
+    tundra,
+
+    // Snowy
+    ice_desert,
+
+    // None
+    desert,
+    hell,
+    sky,
+
+    pub fn topBlock(biome: Biome) BlockId {
+        return if (biome == .desert) .sand else .grass;
+    }
+
+    pub fn fillerBlock(biome: Biome) BlockId {
+        return if (biome == .ice_desert) .sand else .dirt;
+    }
+
+    pub fn rainy(biome: Biome) bool {
+        // zig fmt: off
+        return switch (biome) {
+            .rainforest
+            | .swampland
+            | .seasonal_forest
+            | .forest
+            | .savanna
+            | .shrubland
+            | .plains
+            | .taiga
+            | .tundra => true,
+            else => false,
+        };
+    }
+    // zig fmt: on
+
+    pub fn snowy(biome: Biome) bool {
+        return switch (biome) {
+            .taiga | .tundra | .ice_desert => true,
+            else => false,
+        };
+    }
+
+    pub fn lookupBiome(temperature: f64, abs_humidity: f64) Biome {
+        const humidity = abs_humidity * temperature;
+        if (temperature < 0.1) return .tundra;
+        if (humidity < 0.2) {
+            return if (temperature < 0.5) .tundra else if (temperature < 0.95) .savanna else .desert;
+        }
+        if (humidity > 0.5 and temperature < 0.7) return .swampland;
+        if (temperature < 0.5) return .taiga;
+        if (temperature < 0.97) {
+            return if (humidity < 0.35) .shrubland else .forest;
+        }
+        if (humidity < 0.45) {
+            return .plains;
+        } else if (humidity < 0.9) {
+            return .seasonal_forest;
+        }
+        return .rainforest;
+    }
+};
