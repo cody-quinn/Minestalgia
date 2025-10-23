@@ -144,13 +144,18 @@ fn populateHeightMap(heightmap: []f64, chunk_x: i32, chunk_z: i32) void {
 
     for (0..hm_width) |x| {
         const local_x: i32 = @intCast(x * xz_mul + xz_mul / 2);
+        const world_x = chunk_x * 16 + local_x;
 
         for (0..hm_depth) |z| {
             const z_index = x * hm_depth + z;
 
             const local_z: i32 = @intCast(z * xz_mul + xz_mul / 2);
-            const temp, var humidity = getTempHumidity(local_x, local_z);
-            humidity = 1.0 - math.pow(f64, 1.0 - humidity * temp, 3);
+            const world_z = chunk_z * 16 + local_z;
+
+            const temp, var humidity = getTempHumidity(world_x, world_z);
+            humidity = 1.0 - humidity * temp;
+            humidity = (humidity * humidity) * (humidity * humidity);
+            humidity = 1.0 - humidity;
 
             // Calculate scale
             var scale = clamp((scale_noise_buf[z_index] + 256.0) / 512.0 * humidity, 0.0, 1.0);
