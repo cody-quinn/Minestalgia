@@ -177,7 +177,9 @@ fn populateHeightMap(heightmap: []f64, chunk_x: i32, chunk_z: i32) void {
             }
 
             scale += 0.5;
-            depth = @as(comptime_float, hm_height) / 2.0 + (depth * hm_height / 16.0) * 4.0;
+
+            depth = depth * hm_height / 16.0;
+            depth = @as(comptime_float, hm_height) / 2.0 + depth * 4.0;
 
             for (0..hm_height) |y| {
                 const y_index = x * hm_height * hm_depth + z * hm_height + y;
@@ -211,11 +213,19 @@ fn getTempHumidity(ix: i32, iz: i32) struct { f64, f64 } {
     const x: f64 = @floatFromInt(ix);
     const z: f64 = @floatFromInt(iz);
 
-    const variation = variation_noise.noise2D(x, z, 0.25, 0.25) * 1.1 + 0.5;
-    var temp = (temp_noise.noise2D(x, z, 0.025, 0.025) * 0.15 + 0.7) * (1.0 - 0.01) + variation * 0.01;
-    var humidity = (humidity_noise.noise2D(x, z, 0.05, 0.05) * 0.15 + 0.5) * (1.0 - 0.002) + variation * 0.002;
+    const variation_scale = 0.25 / 1.5;
+    const variation = variation_noise.noise2D(x, z, variation_scale, variation_scale) * 1.1 + 0.5;
 
+    const temp_scale = 0.025 / 1.5;
+    var temp = temp_noise.noise2D(x, z, temp_scale, temp_scale) * 0.15 + 0.7;
+    temp *= 1.0 - 0.01;
+    temp += variation * 0.01;
     temp = clamp(1.0 - (1.0 - temp) * (1.0 - temp), 0.0, 1.0);
+
+    const humidity_scale = 0.05 / 1.5;
+    var humidity = humidity_noise.noise2D(x, z, humidity_scale, humidity_scale) * 0.15 + 0.5;
+    humidity *= 1.0 - 0.002;
+    humidity += variation * 0.002;
     humidity = clamp(humidity, 0.0, 1.0);
 
     return .{ temp, humidity };
@@ -224,14 +234,14 @@ fn getTempHumidity(ix: i32, iz: i32) struct { f64, f64 } {
 fn initializeNoise(world_seed: u64) void {
     var random = Random.init(world_seed);
 
-    lo_noise = .init(&random, 1.0);
-    hi_noise = .init(&random, 1.0);
-    main_noise = .init(&random, 1.0);
-    sand_noise = .init(&random, 1.0);
-    stone_noise = .init(&random, 1.0);
-    scale_noise = .init(&random, 1.0);
-    depth_noise = .init(&random, 1.0);
-    forest_noise = .init(&random, 1.0);
+    lo_noise = .init(&random, 0.5);
+    hi_noise = .init(&random, 0.5);
+    main_noise = .init(&random, 0.5);
+    sand_noise = .init(&random, 0.5);
+    stone_noise = .init(&random, 0.5);
+    scale_noise = .init(&random, 0.5);
+    depth_noise = .init(&random, 0.5);
+    forest_noise = .init(&random, 0.5);
 
     random = Random.init(world_seed * 9871);
     temp_noise = .init(&random, 0.25);

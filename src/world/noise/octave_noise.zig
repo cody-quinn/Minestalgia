@@ -15,9 +15,9 @@ pub fn OctaveNoise(Noise: type, sample_count: comptime_int) type {
         const Self = @This();
 
         samples: [sample_count]Noise,
-        initial_scale_modifier: f64,
+        scale_multiplier: f64,
 
-        pub fn init(random: *Random, initial_scale_modifier: f64) Self {
+        pub fn init(random: *Random, scale_multiplier: f64) Self {
             var samples: [sample_count]Noise = undefined;
             for (0..sample_count) |i| {
                 samples[i] = Noise.init(random);
@@ -25,22 +25,23 @@ pub fn OctaveNoise(Noise: type, sample_count: comptime_int) type {
 
             return Self{
                 .samples = samples,
-                .initial_scale_modifier = initial_scale_modifier,
+                .scale_multiplier = scale_multiplier,
             };
         }
 
         pub fn noise2D(self: *const Self, ix: f64, iz: f64, scale_x: f64, scale_z: f64) f64 {
             if (!supports_2D) @compileError("Noise type doesn't support 2D noise");
 
-            var scale_modifier: f64 = self.initial_scale_modifier;
+            var scale_modifier: f64 = 1.0;
             var denominator: f64 = 1.0;
             var value: f64 = 0.0;
 
             for (self.samples) |sample| {
                 const result = sample.noise2D(ix, iz, scale_x * scale_modifier, scale_z * scale_modifier);
                 value += result * (Noise.OCTAVE_MOD_NUMERATOR / denominator);
-                scale_modifier /= 2.0;
-                denominator /= 2.0;
+
+                scale_modifier *= self.scale_multiplier;
+                denominator *= 0.5;
             }
 
             return value;
@@ -61,15 +62,16 @@ pub fn OctaveNoise(Noise: type, sample_count: comptime_int) type {
         pub fn noise3D(self: *const Self, ix: f64, iy: f64, iz: f64, scale_x: f64, scale_y: f64, scale_z: f64) f64 {
             if (!supports_3D) @compileError("Noise type doesn't support 3D noise");
 
-            var scale_modifier: f64 = self.initial_scale_modifier;
+            var scale_modifier: f64 = 1.0;
             var denominator: f64 = 1.0;
             var value: f64 = 0.0;
 
             for (self.samples) |sample| {
                 const result = sample.noise3D(ix, iy, iz, scale_x * scale_modifier, scale_y * scale_modifier, scale_z * scale_modifier);
                 value += result * (Noise.OCTAVE_MOD_NUMERATOR / denominator);
-                scale_modifier /= 2.0;
-                denominator /= 2.0;
+
+                scale_modifier *= self.scale_multiplier;
+                denominator *= 0.5;
             }
 
             return value;
