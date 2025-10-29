@@ -13,6 +13,9 @@ const Self = @This();
 const std = @import("std");
 const math = std.math;
 
+const Vec2 = @import("../../vec.zig").Vec2;
+const Vec3 = @import("../../vec.zig").Vec3;
+
 const Random = @import("../../jvm/Random.zig");
 
 pub const OCTAVE_MOD_NUMERATOR: f64 = 0.55;
@@ -58,9 +61,9 @@ pub fn init(random: *Random) Self {
     };
 }
 
-pub fn noise2D(self: *const Self, ix: f64, iz: f64, scale_x: f64, scale_z: f64) f64 {
-    const x = ix * scale_x + self.rx;
-    const z = iz * scale_z + self.rz;
+pub fn noise2D(self: *const Self, pos: Vec2(f64), scale: Vec2(f64)) f64 {
+    const x = pos.x * scale.x + self.rx;
+    const z = pos.z * scale.z + self.rz;
 
     const s = (x + z) * f2;
     const xs = floor(x + s);

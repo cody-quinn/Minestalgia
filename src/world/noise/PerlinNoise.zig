@@ -1,8 +1,9 @@
 const Self = @This();
 
-// Minecraft Beta 1.7.3 uses the "Improved Noise" by Ken Perlin with a single modification. The
+// Minecraft Beta 1.7.3 uses the "Improved Noise" by Ken Perlin with two modifications. The first
 // modification is that an additional randomly generated modifier based on world seed is added to
-// the x, y, and z values.
+// the x, y, and z values. The second modification is that when generating noise for multiple points
+// at a time, some values will not be recomputed if the previous `Y` and current `Y` are equal.
 //
 // Implementation based on:
 // - https://mrl.cs.nyu.edu/~perlin/noise/
@@ -10,6 +11,9 @@ const Self = @This();
 
 const std = @import("std");
 const math = std.math;
+
+const Vec2 = @import("../../vec.zig").Vec2;
+const Vec3 = @import("../../vec.zig").Vec3;
 
 const Random = @import("../../jvm/Random.zig");
 
@@ -49,9 +53,9 @@ pub fn init(random: *Random) Self {
     };
 }
 
-pub fn noise2D(self: *const Self, ix: f64, iz: f64, scale_x: f64, scale_z: f64) f64 {
-    var x = ix * scale_x + self.rx;
-    var z = iz * scale_z + self.rz;
+pub fn noise2D(self: *const Self, pos: Vec2(f64), scale: Vec2(f64)) f64 {
+    var x = pos.x * scale.x + self.rx;
+    var z = pos.z * scale.z + self.rz;
 
     const X: usize = @intCast(@as(i32, @intFromFloat(@floor(x))) & 255);
     const Z: usize = @intCast(@as(i32, @intFromFloat(@floor(z))) & 255);
@@ -76,10 +80,10 @@ pub fn noise2D(self: *const Self, ix: f64, iz: f64, scale_x: f64, scale_z: f64) 
 }
 // zig fmt: on
 
-pub fn noise3D(self: *const Self, ix: f64, iy: f64, iz: f64, scale_x: f64, scale_y: f64, scale_z: f64) f64 {
-    var x = ix * scale_x + self.rx;
-    var y = iy * scale_y + self.ry;
-    var z = iz * scale_z + self.rz;
+pub fn noise3D(self: *const Self, pos: Vec3(f64), scale: Vec3(f64)) f64 {
+    var x = pos.x * scale.x + self.rx;
+    var y = pos.y * scale.y + self.ry;
+    var z = pos.z * scale.z + self.rz;
 
     const X: usize = @intCast(@as(i32, @intFromFloat(@floor(x))) & 255);
     const Y: usize = @intCast(@as(i32, @intFromFloat(@floor(y))) & 255);
@@ -114,7 +118,8 @@ pub fn noise3D(self: *const Self, ix: f64, iy: f64, iz: f64, scale_x: f64, scale
 }
 // zig fmt: on
 
-pub fn fill3D(self: *const Self, buf: []f64, ix: f64, iy: f64, iz: f64, size_x: usize, size_y: usize, size_z: usize, scale_x: f64, scale_y: f64, scale_z: f64, mul: f64) void {
+// TODO: Clean up this function
+pub fn fill3D(self: *const Self, buffer: []f64, pos: Vec3(f64), size: Vec3(usize), scale: Vec3(f64), mul: f64) void {
     const exp: f64 = 1.0 / mul;
 
     var prevY: usize = 0;
@@ -130,23 +135,23 @@ pub fn fill3D(self: *const Self, buf: []f64, ix: f64, iy: f64, iz: f64, size_x: 
     var r3: f64 = 0.0;
     var r4: f64 = 0.0;
 
-    for (0..size_x) |ox| {
-        var x = (ix + @as(f64, @floatFromInt(ox))) * scale_x + self.rx;
+    for (0..size.x) |ox| {
+        var x = (pos.x + @as(f64, @floatFromInt(ox))) * scale.x + self.rx;
 
         const X: usize = @intCast(@as(i32, @intFromFloat(@floor(x))) & 255);
         x -= @floor(x);
         const u = fade(x);
 
-        for (0..size_z) |oz| {
-            var z = (iz + @as(f64, @floatFromInt(oz))) * scale_z + self.rz;
+        for (0..size.z) |oz| {
+            var z = (pos.z + @as(f64, @floatFromInt(oz))) * scale.z + self.rz;
 
             const Z: usize = @intCast(@as(i32, @intFromFloat(@floor(z))) & 255);
             z -= @floor(z);
             const w = fade(z);
 
-            for (0..size_y) |oy| {
-                const idx = oy + oz * size_y + ox * size_y * size_z;
-                var y = (iy + @as(f64, @floatFromInt(oy))) * scale_y + self.ry;
+            for (0..size.y) |oy| {
+                const idx = oy + oz * size.y + ox * size.y * size.z;
+                var y = (pos.y + @as(f64, @floatFromInt(oy))) * scale.y + self.ry;
 
                 const Y: usize = @intCast(@as(i32, @intFromFloat(@floor(y))) & 255);
                 y -= @floor(y);
@@ -171,7 +176,7 @@ pub fn fill3D(self: *const Self, buf: []f64, ix: f64, iy: f64, iz: f64, size_x: 
                 const res =
                     lerp(w, lerp(v, r1, r2), lerp(v, r3, r4));
 
-                buf[idx] += res * exp;
+                buffer[idx] += res * exp;
             }
         }
     }

@@ -15,7 +15,7 @@ const StreamReader = @import("StreamReader.zig");
 const ServerConnection = @import("ServerConnection.zig");
 
 const Chunk = @import("world/Chunk.zig");
-const worldgen = @import("world/worldgen.zig");
+const overworld_gen = @import("world/gen/overworld.zig");
 
 allocator: Allocator,
 
@@ -42,13 +42,14 @@ pub fn init(allocator: Allocator, max_clients: usize, world_seed: u64, world_siz
 
     // Generate the chunks
     var timer = try std.time.Timer.start();
+    overworld_gen.initializeGenerator(world_seed);
     for (0..world_size * world_size) |i| {
         const x = @as(i32, @intCast(i % world_size)) - @as(i32, @intCast(world_size / 2));
         const z = @as(i32, @intCast(i / world_size)) - @as(i32, @intCast(world_size / 2));
         const chunk = try chunks.addOne();
         chunk.* = try Chunk.init(allocator, x, z);
         errdefer chunk.deinit();
-        worldgen.populateChunk(chunk, world_seed);
+        overworld_gen.generateChunk(chunk);
     }
 
     const time = timer.read();
@@ -260,9 +261,9 @@ fn processPacket(self: *Self, packet: proto.Packet, client: *ServerConnection) !
                         try target.writeMessage(.{ .named_entity_spawn = .{
                             .entity_id = player.eid,
                             .username = player.username(),
-                            .x = @intFromFloat(player.x),
-                            .y = @intFromFloat(player.y),
-                            .z = @intFromFloat(player.z),
+                            .x = @intFromFloat(player.x * 32.0),
+                            .y = @intFromFloat(player.y * 32.0),
+                            .z = @intFromFloat(player.z * 32.0),
                             .yaw = 0,
                             .pitch = 0,
                             .current_item = 0,
@@ -271,9 +272,9 @@ fn processPacket(self: *Self, packet: proto.Packet, client: *ServerConnection) !
                         try client.writeMessage(.{ .named_entity_spawn = .{
                             .entity_id = target_player.eid,
                             .username = target_player.username(),
-                            .x = @intFromFloat(target_player.x),
-                            .y = @intFromFloat(target_player.y),
-                            .z = @intFromFloat(target_player.z),
+                            .x = @intFromFloat(target_player.x * 32.0),
+                            .y = @intFromFloat(target_player.y * 32.0),
+                            .z = @intFromFloat(target_player.z * 32.0),
                             .yaw = 0,
                             .pitch = 0,
                             .current_item = 0,
@@ -293,31 +294,53 @@ fn processPacket(self: *Self, packet: proto.Packet, client: *ServerConnection) !
 }
 
 fn processPlayPacket(self: *Self, packet: proto.Packet, player: *Player) !void {
+    var updated_position = false;
+
     switch (packet) {
         .keep_alive, .handshake, .login => unreachable,
         .chat_message => |chat_message| {
-            const message = chat_message.message;
+            const raw_message = chat_message.message;
 
-            if (message[0] == '/') {
-                try self.processCommand(player, message);
+            if (raw_message[0] == '/') {
+                try self.processCommand(player, raw_message);
                 return;
             }
+
+            var message_buf: [256]u8 = undefined;
+            const message = try std.fmt.bufPrint(&message_buf, "{s}: {s}", .{ player.username(), raw_message });
 
             for (self.connections[0..self.connected]) |target| {
                 try target.writeMessage(.{ .chat_message = .ofString(message) });
             }
         },
         .player_position => |pos| {
+            updated_position = true;
             player.x = pos.x;
             player.y = pos.y;
             player.z = pos.z;
         },
         .player_position_and_look => |pos| {
+            updated_position = true;
             player.x = pos.x;
             player.y = pos.y;
             player.z = pos.z;
         },
         else => {},
+    }
+
+    for (self.connections[0..self.connected]) |target| {
+        if (target.player) |target_player| {
+            if (target_player.eid != player.eid) {
+                try target.writeMessage(.{ .entity_teleport = .{
+                    .entity_id = player.eid,
+                    .x = @intFromFloat(player.x * 32.0),
+                    .y = @intFromFloat(player.y * 32.0),
+                    .z = @intFromFloat(player.z * 32.0),
+                    .yaw = 0,
+                    .pitch = 0,
+                } });
+            }
+        }
     }
 }
 

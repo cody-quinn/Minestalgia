@@ -3,6 +3,9 @@ const assert = std.debug.assert;
 
 const noise = @import("noise.zig");
 
+const Vec2 = @import("../../vec.zig").Vec2;
+const Vec3 = @import("../../vec.zig").Vec3;
+
 const Random = @import("../../jvm/Random.zig");
 
 pub fn OctaveNoise(Noise: type, sample_count: comptime_int) type {
@@ -31,7 +34,7 @@ pub fn OctaveNoise(Noise: type, sample_count: comptime_int) type {
             };
         }
 
-        pub fn noise2D(self: *const Self, ix: f64, iz: f64, scale_x: f64, scale_z: f64) f64 {
+        pub fn noise2D(self: *const Self, pos: Vec2(f64), scale: Vec2(f64)) f64 {
             if (!supports_2D) @compileError("Noise type doesn't support 2D noise");
 
             var scale_modifier: f64 = 1.0;
@@ -39,7 +42,7 @@ pub fn OctaveNoise(Noise: type, sample_count: comptime_int) type {
             var value: f64 = 0.0;
 
             for (self.samples) |sample| {
-                const result = sample.noise2D(ix, iz, scale_x * scale_modifier, scale_z * scale_modifier);
+                const result = sample.noise2D(pos, scale.scale(scale_modifier));
                 value += result * (Noise.OCTAVE_MOD_NUMERATOR / denominator);
 
                 scale_modifier *= self.scale_multiplier;
@@ -49,171 +52,28 @@ pub fn OctaveNoise(Noise: type, sample_count: comptime_int) type {
             return value;
         }
 
-        pub fn fill2D(self: *const Self, buffer: []f64, ix: f64, iz: f64, size_x: usize, size_z: usize, scale_x: f64, scale_z: f64) void {
-            assert(size_x * size_z <= buffer.len);
-            for (0..size_x) |ox| {
-                for (0..size_z) |oz| {
-                    const idx = oz + ox * size_z;
-                    const x: f64 = ix + @as(f64, @floatFromInt(ox));
-                    const z: f64 = iz + @as(f64, @floatFromInt(oz));
-                    buffer[idx] = self.noise2D(x, z, scale_x, scale_z);
+        pub fn fill2D(self: *const Self, buffer: []f64, pos: Vec2(f64), size: Vec2(usize), scale: Vec2(f64)) void {
+            assert(size.x * size.z <= buffer.len);
+            for (0..size.x) |ox| {
+                for (0..size.z) |oz| {
+                    const idx = oz + ox * size.z;
+                    const x: f64 = pos.x + @as(f64, @floatFromInt(ox));
+                    const z: f64 = pos.z + @as(f64, @floatFromInt(oz));
+                    buffer[idx] = self.noise2D(.init(x, z), scale);
                 }
             }
         }
 
-        pub fn noise3D(self: *const Self, ix: f64, iy: f64, iz: f64, scale_x: f64, scale_y: f64, scale_z: f64) f64 {
+        pub fn noise3D(self: *const Self, pos: Vec3(f64), scale: Vec3(f64)) f64 {
             if (!supports_3D) @compileError("Noise type doesn't support 3D noise");
 
             var scale_modifier: f64 = 1.0;
-            // var denominator: f64 = 1.0;
-            var value: f64 = 0.0;
-
-            for (self.samples) |sample| {
-                const result = sample.noise3D(ix, iy, iz, scale_x * scale_modifier, scale_y * scale_modifier, scale_z * scale_modifier);
-                value += result * (1.0 / scale_modifier);
-                scale_modifier /= 2.0;
-
-                // const result = sample.noise3D(ix, iy, iz, scale_x * scale_modifier, scale_y * scale_modifier, scale_z * scale_modifier);
-                // value += result * (Noise.OCTAVE_MOD_NUMERATOR / denominator);
-
-                // scale_modifier *= self.scale_multiplier;
-                // denominator *= 0.5;
-            }
-
-            return value;
-        }
-
-        pub fn fill3D(self: *const Self, buffer: []f64, ix: f64, iy: f64, iz: f64, size_x: usize, size_y: usize, size_z: usize, scale_x: f64, scale_y: f64, scale_z: f64) void {
-            assert(size_x * size_y * size_z <= buffer.len);
-            if (@hasDecl(Noise, "fill3D")) {
-
-                var scale: f64 = 1.0;
-                for (self.samples) |sample| {
-                    sample.fill3D(buffer, ix, iy, iz, size_x, size_y, size_z, scale_x * scale, scale_y * scale, scale_z * scale, scale);
-                    scale /= 2.0;
-                }
-
-            } else {
-                for (0..size_x) |ox| {
-                    for (0..size_z) |oz| {
-                        for (0..size_y) |oy| {
-                            const idx = oy + oz * size_y + ox * size_y * size_z;
-                            const x: f64 = ix + @as(f64, @floatFromInt(ox));
-                            const y: f64 = iy + @as(f64, @floatFromInt(oy));
-                            const z: f64 = iz + @as(f64, @floatFromInt(oz));
-                            buffer[idx] = self.noise3D(x, y, z, scale_x, scale_y, scale_z);
-                        }
-                    }
-                }
-            }
-        }
-    };
-}
-
-pub fn OctaveNoisePerlin(sample_count: comptime_int) type {
-    return struct {
-        const Self = @This();
-
-        samples: [sample_count]noise.PerlinNoise,
-        scale_multiplier: f64,
-
-        pub fn init(random: *Random, scale_multiplier: f64) Self {
-            var samples: [sample_count]noise.PerlinNoise = undefined;
-            for (0..sample_count) |i| {
-                samples[i] = noise.PerlinNoise.init(random);
-            }
-
-            return Self{
-                .samples = samples,
-                .scale_multiplier = scale_multiplier,
-            };
-        }
-
-        pub fn noise2D(self: *const Self, ix: f64, iz: f64, scale_x: f64, scale_z: f64) f64 {
-            var scale_modifier: f64 = 1.0;
             var denominator: f64 = 1.0;
             var value: f64 = 0.0;
 
             for (self.samples) |sample| {
-                value += sample.noise2D(ix, iz, scale_x * scale_modifier, scale_z * scale_modifier) * (1.00 / denominator);
-
-                scale_modifier /= 2.0;
-                denominator /= 2.0;
-            }
-
-            return value;
-        }
-
-        pub fn fill2D(self: *const Self, buffer: []f64, ix: f64, iz: f64, size_x: usize, size_z: usize, scale_x: f64, scale_z: f64) void {
-            assert(size_x * size_z <= buffer.len);
-            for (0..size_x) |ox| {
-                for (0..size_z) |oz| {
-                    const idx = oz + ox * size_z;
-                    const x: f64 = ix + @as(f64, @floatFromInt(ox));
-                    const z: f64 = iz + @as(f64, @floatFromInt(oz));
-                    buffer[idx] = self.noise2D(x, z, scale_x, scale_z);
-                }
-            }
-        }
-
-        pub fn noise3D(self: *const Self, ix: f64, iy: f64, iz: f64, scale_x: f64, scale_y: f64, scale_z: f64) f64 {
-            var scale_modifier: f64 = 1.0;
-            var denominator: f64 = 1.0;
-            var value: f64 = 0.0;
-
-            for (self.samples) |sample| {
-                value += sample.noise3D(ix, iy, iz, scale_x * scale_modifier, scale_y * scale_modifier, scale_z * scale_modifier) * (1.00 / denominator);
-
-                scale_modifier /= 2.0;
-                denominator /= 2.0;
-            }
-
-            return value;
-        }
-
-        pub fn fill3D(self: *const Self, buffer: []f64, ix: f64, iy: f64, iz: f64, size_x: usize, size_y: usize, size_z: usize, scale_x: f64, scale_y: f64, scale_z: f64) void {
-            assert(size_x * size_y * size_z <= buffer.len);
-            for (0..size_x) |ox| {
-                for (0..size_z) |oz| {
-                    for (0..size_y) |oy| {
-                        const idx = oy + oz * size_y + ox * size_y * size_z;
-                        const x: f64 = ix + @as(f64, @floatFromInt(ox));
-                        const y: f64 = iy + @as(f64, @floatFromInt(oy));
-                        const z: f64 = iz + @as(f64, @floatFromInt(oz));
-                        buffer[idx] = self.noise3D(x, y, z, scale_x, scale_y, scale_z);
-                    }
-                }
-            }
-        }
-    };
-}
-
-pub fn OctaveNoiseSimplex(sample_count: comptime_int) type {
-    return struct {
-        const Self = @This();
-
-        samples: [sample_count]noise.SimplexNoise,
-        scale_multiplier: f64,
-
-        pub fn init(random: *Random, scale_multiplier: f64) Self {
-            var samples: [sample_count]noise.SimplexNoise = undefined;
-            for (0..sample_count) |i| {
-                samples[i] = noise.SimplexNoise.init(random);
-            }
-
-            return Self{
-                .samples = samples,
-                .scale_multiplier = scale_multiplier,
-            };
-        }
-
-        pub fn noise2D(self: *const Self, ix: f64, iz: f64, scale_x: f64, scale_z: f64) f64 {
-            var scale_modifier: f64 = 1.0;
-            var denominator: f64 = 1.0;
-            var value: f64 = 0.0;
-
-            for (self.samples) |sample| {
-                value += sample.noise2D(ix, iz, scale_x * scale_modifier, scale_z * scale_modifier) * (0.55 / denominator);
+                const result = sample.noise3D(pos, scale.scale(scale_modifier));
+                value += result * (Noise.OCTAVE_MOD_NUMERATOR / denominator);
 
                 scale_modifier *= self.scale_multiplier;
                 denominator *= 0.5;
@@ -222,14 +82,25 @@ pub fn OctaveNoiseSimplex(sample_count: comptime_int) type {
             return value;
         }
 
-        pub fn fill2D(self: *const Self, buffer: []f64, ix: f64, iz: f64, size_x: usize, size_z: usize, scale_x: f64, scale_z: f64) void {
-            assert(size_x * size_z <= buffer.len);
-            for (0..size_x) |ox| {
-                for (0..size_z) |oz| {
-                    const idx = oz + ox * size_z;
-                    const x: f64 = ix + @as(f64, @floatFromInt(ox));
-                    const z: f64 = iz + @as(f64, @floatFromInt(oz));
-                    buffer[idx] = self.noise2D(x, z, scale_x, scale_z);
+        pub fn fill3D(self: *const Self, buffer: []f64, pos: Vec3(f64), size: Vec3(usize), scale: Vec3(f64)) void {
+            assert(size.x * size.y * size.z <= buffer.len);
+            if (@hasDecl(Noise, "fill3D")) {
+                var scale_modifier: f64 = 1.0;
+                for (self.samples) |sample| {
+                    sample.fill3D(buffer, pos, size, scale.scale(scale_modifier), scale_modifier);
+                    scale_modifier *= self.scale_multiplier;
+                }
+            } else {
+                for (0..size.x) |ox| {
+                    for (0..size.z) |oz| {
+                        for (0..size.y) |oy| {
+                            const idx = oy + oz * size.y + ox * size.y * size.z;
+                            const x: f64 = pos.x + @as(f64, @floatFromInt(ox));
+                            const y: f64 = pos.y + @as(f64, @floatFromInt(oy));
+                            const z: f64 = pos.z + @as(f64, @floatFromInt(oz));
+                            buffer[idx] = self.noise3D(.init(x, y, z), scale);
+                        }
+                    }
                 }
             }
         }

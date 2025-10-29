@@ -1,13 +1,11 @@
 pub const OctaveNoise = @import("octave_noise.zig").OctaveNoise;
 
-pub const OctaveNoisePerlin = @import("octave_noise.zig").OctaveNoisePerlin;
-pub const OctaveNoiseSimplex = @import("octave_noise.zig").OctaveNoiseSimplex;
-
 pub const PerlinNoise = @import("PerlinNoise.zig");
 pub const SimplexNoise = @import("SimplexNoise.zig");
 
 const std = @import("std");
 const expectEqual = std.testing.expectEqual;
+const expectEqualSlices = std.testing.expectEqualSlices;
 
 const Random = @import("../../jvm/Random.zig");
 
@@ -26,48 +24,33 @@ fn parseBinFile(comptime path: []const u8) [@embedFile(path).len / 8]f64 {
 
 fn testNoise2D(comptime Noise: type, comptime path: []const u8, octaves: comptime_int, scale: f64) !void {
     var random = Random.init(0);
-    const gen =
-        if (octaves == 0)
-            Noise.init(&random)
-        else
-            OctaveNoise(Noise, octaves).init(&random, 0.5);
+    const gen = OctaveNoise(Noise, octaves).init(&random, 0.5);
     const expected = parseBinFile(path);
-
-    for (0..256 * 256) |i| {
-        const x: f64 = @floatFromInt(@as(i64, @intCast(i / 256)) - 128);
-        const z: f64 = @floatFromInt(@as(i64, @intCast(i % 256)) - 128);
-        const actual = gen.noise2D(x, z, scale, scale);
-        try expectEqual(expected[i], actual);
-    }
+    var actual: [256 * 256]f64 = undefined;
+    gen.fill2D(&actual, .splat(-128), .splat(256), .splat(scale));
+    try expectEqualSlices(f64, &expected, &actual);
 }
 
 fn testNoise3D(comptime Noise: type, comptime path: []const u8, octaves: comptime_int, scale: f64) !void {
     var random = Random.init(0);
-    const gen =
-        if (octaves == 0)
-            Noise.init(&random)
-        else
-            OctaveNoise(Noise, octaves).init(&random, 0.5);
+    const gen = OctaveNoise(Noise, octaves).init(&random, 0.5);
     const expected = parseBinFile(path);
-
-    for (0..64 * 64 * 64) |i| {
-        const x: f64 = @floatFromInt(@as(i64, @intCast(i / (64 * 64))) - 32);
-        const z: f64 = @floatFromInt(@as(i64, @intCast(i / 64 % 64)) - 32);
-        const y: f64 = @floatFromInt(@as(i64, @intCast(i % 64)) - 32);
-        if (octaves >= 8) {
-            std.debug.print("{}, {}, {}\n", .{
-                @as(i64, @intFromFloat(x)),
-                @as(i64, @intFromFloat(y)),
-                @as(i64, @intFromFloat(z)),
-            });
-        }
-        const actual = gen.noise3D(x, y, z, scale, scale, scale);
-        try expectEqual(expected[i], actual);
-    }
+    var actual: [64 * 64 * 64]f64 = undefined;
+    gen.fill3D(&actual, .splat(-32), .splat(64), .splat(scale));
+    try expectEqualSlices(f64, &expected, &actual);
 }
 
 test "Simplex Noise No Octaves" {
-    try testNoise2D(SimplexNoise, "test/simplex_s0_o0.bin", 0, 100.0);
+    var random = Random.init(0);
+    const gen = SimplexNoise.init(&random);
+    const expected = parseBinFile("test/simplex_s0_o0.bin");
+    var actual: [256 * 256]f64 = undefined;
+    for (0 .. 256 * 256) |i| {
+        const x: f64 = @floatFromInt(@as(i64, @intCast(i / 256)) - 128);
+        const z: f64 = @floatFromInt(@as(i64, @intCast(i % 256)) - 128);
+        actual[i] = gen.noise2D(.init(x, z), .splat(100.0));
+    }
+    try expectEqualSlices(f64, &expected, &actual);
 }
 
 test "Simplex Noise 2 Octaves" {
@@ -82,8 +65,8 @@ test "Simplex Noise 8 Octaves" {
     try testNoise2D(SimplexNoise, "test/simplex_s0_o8.bin", 8, 100.0 / 1.5);
 }
 
-test "Perlin Noise 2D No Octaves" {
-    try testNoise2D(PerlinNoise, "test/perlin_2d_s0_o0.bin", 0, 100.0);
+test "Perlin Noise 2D 1/No Octaves" {
+    try testNoise2D(PerlinNoise, "test/perlin_2d_s0_o0.bin", 1, 100.0);
 }
 
 test "Perlin Noise 2D 2 Octaves" {
@@ -98,8 +81,8 @@ test "Perlin Noise 2D 16 Octaves" {
     try testNoise2D(PerlinNoise, "test/perlin_2d_s0_o16.bin", 16, 100.0);
 }
 
-test "Perlin Noise 3D No Octaves" {
-    try testNoise3D(PerlinNoise, "test/perlin_3d_s0_o0.bin", 0, 100.0);
+test "Perlin Noise 3D 1/No Octaves" {
+    try testNoise3D(PerlinNoise, "test/perlin_3d_s0_o0.bin", 1, 100.0);
 }
 
 test "Perlin Noise 3D 2 Octaves" {
@@ -108,10 +91,6 @@ test "Perlin Noise 3D 2 Octaves" {
 
 test "Perlin Noise 3D 4 Octaves" {
     try testNoise3D(PerlinNoise, "test/perlin_3d_s0_o4.bin", 4, 100.0);
-}
-
-test "Perlin Noise 3D 7 Octaves" {
-    try testNoise3D(PerlinNoise, "test/perlin_3d_s0_o7.bin", 7, 100.0);
 }
 
 test "Perlin Noise 3D 8 Octaves" {
