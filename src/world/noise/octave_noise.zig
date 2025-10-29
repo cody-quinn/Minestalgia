@@ -65,15 +65,19 @@ pub fn OctaveNoise(Noise: type, sample_count: comptime_int) type {
             if (!supports_3D) @compileError("Noise type doesn't support 3D noise");
 
             var scale_modifier: f64 = 1.0;
-            var denominator: f64 = 1.0;
+            // var denominator: f64 = 1.0;
             var value: f64 = 0.0;
 
             for (self.samples) |sample| {
                 const result = sample.noise3D(ix, iy, iz, scale_x * scale_modifier, scale_y * scale_modifier, scale_z * scale_modifier);
-                value += result * (Noise.OCTAVE_MOD_NUMERATOR / denominator);
+                value += result * (1.0 / scale_modifier);
+                scale_modifier /= 2.0;
 
-                scale_modifier *= self.scale_multiplier;
-                denominator *= 0.5;
+                // const result = sample.noise3D(ix, iy, iz, scale_x * scale_modifier, scale_y * scale_modifier, scale_z * scale_modifier);
+                // value += result * (Noise.OCTAVE_MOD_NUMERATOR / denominator);
+
+                // scale_modifier *= self.scale_multiplier;
+                // denominator *= 0.5;
             }
 
             return value;

@@ -54,6 +54,13 @@ fn testNoise3D(comptime Noise: type, comptime path: []const u8, octaves: comptim
         const x: f64 = @floatFromInt(@as(i64, @intCast(i / (64 * 64))) - 32);
         const z: f64 = @floatFromInt(@as(i64, @intCast(i / 64 % 64)) - 32);
         const y: f64 = @floatFromInt(@as(i64, @intCast(i % 64)) - 32);
+        if (octaves >= 8) {
+            std.debug.print("{}, {}, {}\n", .{
+                @as(i64, @intFromFloat(x)),
+                @as(i64, @intFromFloat(y)),
+                @as(i64, @intFromFloat(z)),
+            });
+        }
         const actual = gen.noise3D(x, y, z, scale, scale, scale);
         try expectEqual(expected[i], actual);
     }

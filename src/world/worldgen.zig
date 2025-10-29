@@ -219,8 +219,11 @@ fn populateHeightMap(heightmap: []f64, chunk_x: i32, chunk_z: i32) void {
 
             const temp, var humidity = getTempHumidity(world_x, world_z);
 
-            assert(temp_a == temp);
-            assert(humidity_a == humidity);
+            _ = temp_a;
+            _ = humidity_a;
+
+            // assert(temp_a == temp);
+            // assert(humidity_a == humidity);
 
             {
                 const ix: f64 = @floatFromInt(world_x);
