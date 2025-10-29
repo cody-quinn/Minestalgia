@@ -156,4 +156,5 @@ fn parseArgs() !CliArguments {
 
 test {
     _ = @import("jvm/Random.zig");
+    _ = @import("world/noise/noise.zig");
 }
