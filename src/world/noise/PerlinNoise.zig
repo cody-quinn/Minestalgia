@@ -114,6 +114,69 @@ pub fn noise3D(self: *const Self, ix: f64, iy: f64, iz: f64, scale_x: f64, scale
 }
 // zig fmt: on
 
+pub fn fill3D(self: *const Self, buf: []f64, ix: f64, iy: f64, iz: f64, size_x: usize, size_y: usize, size_z: usize, scale_x: f64, scale_y: f64, scale_z: f64, mul: f64) void {
+    const exp: f64 = 1.0 / mul;
+
+    var prevY: usize = 0;
+    var A: usize = 0;
+    var AA: usize = 0;
+    var AB: usize = 0;
+    var B: usize = 0;
+    var BA: usize = 0;
+    var BB: usize = 0;
+
+    var r1: f64 = 0.0;
+    var r2: f64 = 0.0;
+    var r3: f64 = 0.0;
+    var r4: f64 = 0.0;
+
+    for (0..size_x) |ox| {
+        var x = (ix + @as(f64, @floatFromInt(ox))) * scale_x + self.rx;
+
+        const X: usize = @intCast(@as(i32, @intFromFloat(@floor(x))) & 255);
+        x -= @floor(x);
+        const u = fade(x);
+
+        for (0..size_z) |oz| {
+            var z = (iz + @as(f64, @floatFromInt(oz))) * scale_z + self.rz;
+
+            const Z: usize = @intCast(@as(i32, @intFromFloat(@floor(z))) & 255);
+            z -= @floor(z);
+            const w = fade(z);
+
+            for (0..size_y) |oy| {
+                const idx = oy + oz * size_y + ox * size_y * size_z;
+                var y = (iy + @as(f64, @floatFromInt(oy))) * scale_y + self.ry;
+
+                const Y: usize = @intCast(@as(i32, @intFromFloat(@floor(y))) & 255);
+                y -= @floor(y);
+                const v = fade(y);
+
+                if (oy == 0 or Y != prevY) {
+                    prevY = Y;
+
+                    A = self.permutations[X] + Y;
+                    AA = self.permutations[A] + Z;
+                    AB = self.permutations[A + 1] + Z;
+                    B = self.permutations[X + 1] + Y;
+                    BA = self.permutations[B] + Z;
+                    BB = self.permutations[B + 1] + Z;
+
+                    r1 = lerp(u, grad(self.permutations[AA], x, y, z), grad(self.permutations[BA], x - 1, y, z));
+                    r2 = lerp(u, grad(self.permutations[AB], x, y - 1, z), grad(self.permutations[BB], x - 1, y - 1, z));
+                    r3 = lerp(u, grad(self.permutations[AA + 1], x, y, z - 1), grad(self.permutations[BA + 1], x - 1, y, z - 1));
+                    r4 = lerp(u, grad(self.permutations[AB + 1], x, y - 1, z - 1), grad(self.permutations[BB + 1], x - 1, y - 1, z - 1));
+                }
+
+                const res =
+                    lerp(w, lerp(v, r1, r2), lerp(v, r3, r4));
+
+                buf[idx] += res * exp;
+            }
+        }
+    }
+}
+
 fn fade(t: f64) f64 {
     return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
 }

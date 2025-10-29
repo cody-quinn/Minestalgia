@@ -16,29 +16,23 @@ const Chunk = @import("Chunk.zig");
 var initialized: bool = false;
 
 // Terrain Noise
-var lo_noise: noise.OctaveNoisePerlin(16) = undefined;
-var hi_noise: noise.OctaveNoisePerlin(16) = undefined;
-var main_noise: noise.OctaveNoisePerlin(8) = undefined;
+var lo_noise: noise.OctaveNoise(noise.PerlinNoise, 16) = undefined;
+var hi_noise: noise.OctaveNoise(noise.PerlinNoise, 16) = undefined;
+var main_noise: noise.OctaveNoise(noise.PerlinNoise, 8) = undefined;
 
-var lo_noise_1: noise.OctaveNoise(noise.PerlinNoise, 16) = undefined;
-var hi_noise_1: noise.OctaveNoise(noise.PerlinNoise, 16) = undefined;
-var main_noise_1: noise.OctaveNoise(noise.PerlinNoise, 8) = undefined;
+var sand_noise: noise.OctaveNoise(noise.PerlinNoise, 4) = undefined;
+var stone_noise: noise.OctaveNoise(noise.PerlinNoise, 4) = undefined;
 
-var sand_noise: noise.OctaveNoisePerlin(4) = undefined;
-var stone_noise: noise.OctaveNoisePerlin(4) = undefined;
-
-var scale_noise: noise.OctaveNoisePerlin(10) = undefined;
-var depth_noise: noise.OctaveNoisePerlin(16) = undefined;
+var scale_noise: noise.OctaveNoise(noise.PerlinNoise, 10) = undefined;
+var depth_noise: noise.OctaveNoise(noise.PerlinNoise, 16) = undefined;
 
 // Features Noise
-var forest_noise: noise.OctaveNoisePerlin(8) = undefined;
+var forest_noise: noise.OctaveNoise(noise.PerlinNoise, 8) = undefined;
 
 // Biome Noise
 var temp_noise: noise.OctaveNoiseSimplex(4) = undefined;
 var humidity_noise: noise.OctaveNoiseSimplex(4) = undefined;
 var variation_noise: noise.OctaveNoiseSimplex(2) = undefined;
-
-var temp_noise_1: noise.OctaveNoise(noise.SimplexNoise, 4) = undefined;
 
 const hm_width = 5;
 const hm_height = 17;
@@ -128,52 +122,11 @@ pub fn populateChunk(chunk: *Chunk, world_seed: u64) void {
 fn populateHeightMap(heightmap: []f64, chunk_x: i32, chunk_z: i32) void {
     const xz_mul = 16 / hm_width;
 
-    var variation_buf: [16 * 16]f64 = undefined;
-    var temp_buf: [16 * 16]f64 = undefined;
-    var humidity_buf: [16 * 16]f64 = undefined;
-
-    {
-        const x: f64 = @floatFromInt(chunk_x * 16);
-        const z: f64 = @floatFromInt(chunk_z * 16);
-
-        variation_noise.fill2D(&variation_buf, x, z, 16, 16, 0.25 / 1.5, 0.25 / 1.5);
-        temp_noise.fill2D(&temp_buf, x, z, 16, 16, 0.025 / 1.5, 0.025 / 1.5);
-        humidity_noise.fill2D(&humidity_buf, x, z, 16, 16, 0.05 / 1.5, 0.05 / 1.5);
-
-        var i: usize = 0;
-        for (0..16) |_| {
-            for (0..16) |_| {
-                const variation = variation_buf[i] * 1.1 + 0.5;
-                var e: f64 = 0.01;
-                var f: f64 = 1.0 - e;
-                var temp = (temp_buf[i] * 0.15 + 0.7) * f + variation * e;
-
-                e = 0.002;
-                f = 1.0 - e;
-                var humidity = (humidity_buf[i] * 0.15 + 0.5) * f + variation * e;
-                temp = 1.0 - (1.0 - temp) * (1.0 - temp);
-                if (temp < 0.0) temp = 0.0;
-                if (humidity < 0.0) humidity = 0.0;
-                if (temp > 1.0) temp = 1.0;
-                if (humidity > 1.0) humidity = 1.0;
-
-                temp_buf[i] = temp;
-                humidity_buf[i] = humidity;
-
-                i += 1;
-            }
-        }
-    }
-
     var scale_noise_buf: [hm_width * hm_depth]f64 = undefined;
     var depth_noise_buf: [hm_width * hm_depth]f64 = undefined;
     var main_noise_buf: [hm_width * hm_height * hm_depth]f64 = undefined;
     var lo_noise_buf: [hm_width * hm_height * hm_depth]f64 = undefined;
     var hi_noise_buf: [hm_width * hm_height * hm_depth]f64 = undefined;
-
-    var main_noise_1_buf: [hm_width * hm_height * hm_depth]f64 = undefined;
-    var lo_noise_1_buf: [hm_width * hm_height * hm_depth]f64 = undefined;
-    var hi_noise_1_buf: [hm_width * hm_height * hm_depth]f64 = undefined;
 
     {
         // Fill the buffers
@@ -186,22 +139,6 @@ fn populateHeightMap(heightmap: []f64, chunk_x: i32, chunk_z: i32) void {
         main_noise.fill3D(&main_noise_buf, x, 0.0, z, hm_width, hm_height, hm_depth, scale / 80.0, scale / 160.0, scale / 80.0);
         lo_noise.fill3D(&lo_noise_buf, x, 0.0, z, hm_width, hm_height, hm_depth, scale, scale, scale);
         hi_noise.fill3D(&hi_noise_buf, x, 0.0, z, hm_width, hm_height, hm_depth, scale, scale, scale);
-
-        main_noise_1.fill3D(&main_noise_1_buf, x, 0.0, z, hm_width, hm_height, hm_depth, scale / 80.0, scale / 160.0, scale / 80.0);
-        lo_noise_1.fill3D(&lo_noise_1_buf, x, 0.0, z, hm_width, hm_height, hm_depth, scale, scale, scale);
-        hi_noise_1.fill3D(&hi_noise_1_buf, x, 0.0, z, hm_width, hm_height, hm_depth, scale, scale, scale);
-    }
-
-    for (0..main_noise_buf.len) |i| {
-        assert(main_noise_buf[i] == main_noise_1_buf[i]);
-    }
-
-    for (0..lo_noise_buf.len) |i| {
-        assert(lo_noise_buf[i] == lo_noise_1_buf[i]);
-    }
-
-    for (0..hi_noise_buf.len) |i| {
-        assert(hi_noise_buf[i] == hi_noise_1_buf[i]);
     }
 
     for (0..hm_width) |x| {
@@ -214,25 +151,7 @@ fn populateHeightMap(heightmap: []f64, chunk_x: i32, chunk_z: i32) void {
             const local_z: i32 = @intCast(z * xz_mul + xz_mul / 2);
             const world_z = chunk_z * 16 + local_z;
 
-            const temp_a = temp_buf[@intCast(local_x * 16 + local_z)];
-            const humidity_a = humidity_buf[@intCast(local_x * 16 + local_z)];
-
             const temp, var humidity = getTempHumidity(world_x, world_z);
-
-            _ = temp_a;
-            _ = humidity_a;
-
-            // assert(temp_a == temp);
-            // assert(humidity_a == humidity);
-
-            {
-                const ix: f64 = @floatFromInt(world_x);
-                const iz: f64 = @floatFromInt(world_z);
-                const a = temp_noise.noise2D(ix, iz, 0.025 / 1.5, 0.025 / 1.5);
-                const b = temp_noise_1.noise2D(ix, iz, 0.025 / 1.5, 0.025 / 1.5);
-                assert(a == b);
-            }
-
             humidity *= temp;
             humidity = 1.0 - humidity;
             humidity = (humidity * humidity) * (humidity * humidity);
@@ -334,16 +253,8 @@ fn initializeNoise(world_seed: u64) void {
     depth_noise = .init(&random, 0.5);
     forest_noise = .init(&random, 0.5);
 
-    random = Random.init(world_seed);
-    lo_noise_1 = .init(&random, 0.5);
-    hi_noise_1 = .init(&random, 0.5);
-    main_noise_1 = .init(&random, 0.5);
-
     random = Random.init(world_seed * 9871);
     temp_noise = .init(&random, 0.25);
-
-    random = Random.init(world_seed * 9871);
-    temp_noise_1 = .init(&random, 0.25);
 
     random = Random.init(world_seed * 39811);
     humidity_noise = .init(&random, 1.0 / 3.0);

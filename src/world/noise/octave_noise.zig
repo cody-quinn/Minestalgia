@@ -85,14 +85,24 @@ pub fn OctaveNoise(Noise: type, sample_count: comptime_int) type {
 
         pub fn fill3D(self: *const Self, buffer: []f64, ix: f64, iy: f64, iz: f64, size_x: usize, size_y: usize, size_z: usize, scale_x: f64, scale_y: f64, scale_z: f64) void {
             assert(size_x * size_y * size_z <= buffer.len);
-            for (0..size_x) |ox| {
-                for (0..size_z) |oz| {
-                    for (0..size_y) |oy| {
-                        const idx = oy + oz * size_y + ox * size_y * size_z;
-                        const x: f64 = ix + @as(f64, @floatFromInt(ox));
-                        const y: f64 = iy + @as(f64, @floatFromInt(oy));
-                        const z: f64 = iz + @as(f64, @floatFromInt(oz));
-                        buffer[idx] = self.noise3D(x, y, z, scale_x, scale_y, scale_z);
+            if (@hasDecl(Noise, "fill3D")) {
+
+                var scale: f64 = 1.0;
+                for (self.samples) |sample| {
+                    sample.fill3D(buffer, ix, iy, iz, size_x, size_y, size_z, scale_x * scale, scale_y * scale, scale_z * scale, scale);
+                    scale /= 2.0;
+                }
+
+            } else {
+                for (0..size_x) |ox| {
+                    for (0..size_z) |oz| {
+                        for (0..size_y) |oy| {
+                            const idx = oy + oz * size_y + ox * size_y * size_z;
+                            const x: f64 = ix + @as(f64, @floatFromInt(ox));
+                            const y: f64 = iy + @as(f64, @floatFromInt(oy));
+                            const z: f64 = iz + @as(f64, @floatFromInt(oz));
+                            buffer[idx] = self.noise3D(x, y, z, scale_x, scale_y, scale_z);
+                        }
                     }
                 }
             }
