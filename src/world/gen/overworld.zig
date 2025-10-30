@@ -25,8 +25,8 @@ var lo_noise: noise.OctaveNoise(noise.PerlinNoise, 16) = undefined;
 var hi_noise: noise.OctaveNoise(noise.PerlinNoise, 16) = undefined;
 var main_noise: noise.OctaveNoise(noise.PerlinNoise, 8) = undefined;
 
-var sand_noise: noise.OctaveNoise(noise.PerlinNoise, 4) = undefined;
-var stone_noise: noise.OctaveNoise(noise.PerlinNoise, 4) = undefined;
+var beach_noise: noise.OctaveNoise(noise.PerlinNoise, 4) = undefined;
+var surface_noise: noise.OctaveNoise(noise.PerlinNoise, 4) = undefined;
 
 var scale_noise: noise.OctaveNoise(noise.PerlinNoise, 10) = undefined;
 var depth_noise: noise.OctaveNoise(noise.PerlinNoise, 16) = undefined;
@@ -45,25 +45,28 @@ pub fn initializeGenerator(world_seed: u64) void {
     lo_noise = .init(&random, 0.5);
     hi_noise = .init(&random, 0.5);
     main_noise = .init(&random, 0.5);
-    sand_noise = .init(&random, 0.5);
-    stone_noise = .init(&random, 0.5);
+    beach_noise = .init(&random, 0.5);
+    surface_noise = .init(&random, 0.5);
     scale_noise = .init(&random, 0.5);
     depth_noise = .init(&random, 0.5);
     forest_noise = .init(&random, 0.5);
 
-    random = Random.init(world_seed * 9871);
+    random = Random.init(world_seed *% 9871);
     temp_noise = .init(&random, 0.25);
 
-    random = Random.init(world_seed * 39811);
+    random = Random.init(world_seed *% 39811);
     humidity_noise = .init(&random, 1.0 / 3.0);
 
-    random = Random.init(world_seed * 543321);
+    random = Random.init(world_seed *% 543321);
     variation_noise = .init(&random, 0.5882352941176471);
 }
 
 pub fn generateChunk(chunk: *Chunk) void {
+    const seed = @as(i64, chunk.chunk_x) *% 341873128712 +% @as(i64, chunk.chunk_z) *% 132897987541;
+    var random = Random.init(@bitCast(seed));
+
     generateChunkTerrain(chunk);
-    generateChunkBiomes(chunk);
+    generateChunkBiomes(chunk, &random);
 
     chunk.recompressChunk() catch {
         std.debug.print("Failed to compress chunk {}, {}.\n", .{
@@ -137,8 +140,92 @@ fn generateChunkTerrain(chunk: *Chunk) void {
     }
 }
 
-fn generateChunkBiomes(chunk: *Chunk) void {
-    _ = chunk;
+fn generateChunkBiomes(chunk: *Chunk, random: *Random) void {
+    const water_level = 64;
+
+    var sand_noise_buf: [16 * 16]f64 = undefined;
+    var gravel_noise_buf: [16 * 16]f64 = undefined;
+    var surface_noise_buf: [16 * 16]f64 = undefined;
+
+    {
+        const scale: f64 = 0.03125;
+        const pos = Vec3(f64).init(@floatFromInt(chunk.chunk_x * 16), @floatFromInt(chunk.chunk_z * 16), 0.0);
+        const pos_gravel = Vec3(f64).init(pos.x, 109.0134, pos.y);
+
+        beach_noise.fill3D(&sand_noise_buf, pos, .init(16, 16, 1), .init(scale, scale, 1.0));
+        beach_noise.fill3D(&gravel_noise_buf, pos_gravel, .init(16, 1, 16), .init(scale, 1.0, scale));
+        surface_noise.fill3D(&surface_noise_buf, pos, .init(16, 16, 1), .splat(scale * 2.0));
+    }
+
+    // Vanilla game iterates over X and Z backwards here
+    // Matters for order of random calls
+    for (0..16) |z| {
+        for (0..16) |x| {
+            const z_index = x * 16 + z;
+
+            const biome = getBiome(
+                chunk.chunk_x * 16 + @as(i32, @intCast(x)),
+                chunk.chunk_z * 16 + @as(i32, @intCast(z)),
+            );
+
+            const sandy_beach = sand_noise_buf[z_index] + random.float(f64) * 0.2 > 0.0;
+            const gravel_beach = gravel_noise_buf[z_index] + random.float(f64) * 0.2 > 3.0;
+            const surface: i32 = @intFromFloat(@floor(surface_noise_buf[z_index] / 3.0 + 3.0 + random.float(f64) * 0.25));
+
+            var depth: i32 = -1;
+
+            var surface_block: mc.BlockId = biome.topBlock();
+            var subsurface_block: mc.BlockId = biome.fillerBlock();
+
+            var y: i32 = 127;
+            while (y >= 0) : (y -= 1) {
+                const y_index = z_index * 128 + @as(usize, @intCast(y));
+
+                var block: mc.BlockId = @enumFromInt(chunk.data[y_index]);
+
+                if (y <= random.intBounded(i32, 5)) {
+                    block = .bedrock;
+                } else if (block == .air) {
+                    depth = -1;
+                } else if (block == .stone and depth == -1) {
+                    if (surface <= 0) {
+                        surface_block = .air;
+                        subsurface_block = .stone;
+                    } else if (y >= water_level - 4 and y <= water_level + 1) {
+                        surface_block = biome.topBlock();
+                        subsurface_block = biome.fillerBlock();
+
+                        if (gravel_beach) {
+                            surface_block = .air;
+                            subsurface_block = .gravel;
+                        }
+
+                        if (sandy_beach) {
+                            surface_block = .sand;
+                            subsurface_block = .sand;
+                        }
+                    }
+
+                    if (y < water_level and surface_block == .air) {
+                        surface_block = .water_still;
+                    }
+
+                    depth = surface;
+                    block = if (y >= water_level - 1) surface_block else subsurface_block;
+                } else if (block == .stone and depth > 0) {
+                    depth -= 1;
+                    block = subsurface_block;
+
+                    if (depth == 0 and subsurface_block == .sand) {
+                        depth = random.intBounded(i32, 4);
+                        subsurface_block = .sandstone;
+                    }
+                }
+
+                chunk.data[y_index] = @intFromEnum(block);
+            }
+        }
+    }
 }
 
 fn populateDensityMap(densities: []f64, chunk_x: i32, chunk_z: i32) void {
@@ -261,4 +348,9 @@ fn getTempHumidity(ix: i32, iz: i32) struct { f64, f64 } {
     humidity = clamp(humidity, 0.0, 1.0);
 
     return .{ temp, humidity };
+}
+
+fn getBiome(ix: i32, iz: i32) mc.Biome {
+    const temp, const humidity = getTempHumidity(ix, iz);
+    return .lookupBiome(temp, humidity);
 }
