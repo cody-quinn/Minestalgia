@@ -160,6 +160,60 @@ pub const SpawnPosition = struct {
     }
 };
 
+pub const EntityInteraction = struct {
+    pub const ID = 0x07;
+
+    entity_id: u32,
+    target_id: u32,
+    left_click: bool,
+
+    pub fn decode(reader: *StreamReader) !EntityInteraction {
+        return EntityInteraction{
+            .entity_id = try reader.readInt(u32, .big),
+            .target_id = try reader.readInt(u32, .big),
+            .left_click = try reader.readBoolean(),
+        };
+    }
+
+    pub fn encode(self: EntityInteraction, writer: io.AnyWriter) !void {
+        try writer.writeInt(u32, self.entity_id, .big);
+        try writer.writeInt(u32, self.target_id, .big);
+        try writer.writeByte(@intFromBool(self.left_click));
+    }
+};
+
+pub const UpdateHealth = struct {
+    pub const ID = 0x08;
+
+    health: u16,
+
+    pub fn decode(reader: *StreamReader) !UpdateHealth {
+        return UpdateHealth{
+            .health = try reader.readInt(u16, .big),
+        };
+    }
+
+    pub fn encode(self: UpdateHealth, writer: io.AnyWriter) !void {
+        try writer.writeInt(u16, self.health, .big);
+    }
+};
+
+pub const PlayerRespawn = struct {
+    pub const ID = 0x09;
+
+    dimension: u8,
+
+    pub fn decode(reader: *StreamReader) !PlayerRespawn {
+        return PlayerRespawn{
+            .dimension = try reader.readByte(),
+        };
+    }
+
+    pub fn encode(self: PlayerRespawn, writer: io.AnyWriter) !void {
+        try writer.writeByte(self.dimension);
+    }
+};
+
 pub const PlayerOnGround = struct {
     pub const ID = 0x0A;
 
@@ -678,6 +732,9 @@ pub const PacketId = enum(u8) {
     time_update = TimeUpdate.ID,
     entity_equipment = EntityEquipment.ID,
     spawn_position = SpawnPosition.ID,
+    entity_interaction = EntityInteraction.ID,
+    update_health = UpdateHealth.ID,
+    player_respawn = PlayerRespawn.ID,
     player_on_ground = PlayerOnGround.ID,
     player_position = PlayerPosition.ID,
     player_look = PlayerLook.ID,
@@ -708,6 +765,9 @@ pub const Packet = union(PacketId) {
     time_update: TimeUpdate,
     entity_equipment: EntityEquipment,
     spawn_position: SpawnPosition,
+    entity_interaction: EntityInteraction,
+    update_health: UpdateHealth,
+    player_respawn: PlayerRespawn,
     player_on_ground: PlayerOnGround,
     player_position: PlayerPosition,
     player_look: PlayerLook,
@@ -747,6 +807,9 @@ pub fn readPacket(reader: *StreamReader, alloc: std.mem.Allocator) !Packet {
         TimeUpdate.ID => .{ .time_update = try TimeUpdate.decode(reader) },
         EntityEquipment.ID => .{ .entity_equipment = try EntityEquipment.decode(reader) },
         SpawnPosition.ID => .{ .spawn_position = try SpawnPosition.decode(reader) },
+        EntityInteraction.ID => .{ .entity_interaction = try EntityInteraction.decode(reader) },
+        UpdateHealth.ID => .{ .update_health = try UpdateHealth.decode(reader) },
+        PlayerRespawn.ID => .{ .player_respawn = try PlayerRespawn.decode(reader) },
         PlayerOnGround.ID => .{ .player_on_ground = try PlayerOnGround.decode(reader) },
         PlayerPosition.ID => .{ .player_position = try PlayerPosition.decode(reader) },
         PlayerLook.ID => .{ .player_look = try PlayerLook.decode(reader) },
@@ -784,6 +847,9 @@ pub fn writePacket(writer: io.AnyWriter, packet: Packet) !void {
         .time_update => try packet.time_update.encode(writer),
         .entity_equipment => try packet.entity_equipment.encode(writer),
         .spawn_position => try packet.spawn_position.encode(writer),
+        .entity_interaction => try packet.entity_interaction.encode(writer),
+        .update_health => try packet.update_health.encode(writer),
+        .player_respawn => try packet.player_respawn.encode(writer),
         .player_position_and_look => try packet.player_position_and_look.encode(writer),
         .player_digging => try packet.player_digging.encode(writer),
         .player_place_block => try packet.player_place_block.encode(writer),
