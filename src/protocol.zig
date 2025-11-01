@@ -118,14 +118,14 @@ pub const EntityEquipment = struct {
 
     entity_id: u32,
     slot: EquipmentSlot,
-    item_id: u16,
+    item_id: mc.ItemId,
     metadata: u16,
 
     pub fn decode(reader: *StreamReader) !EntityEquipment {
         return EntityEquipment{
             .entity_id = try reader.readInt(u32, .big),
             .slot = @enumFromInt(try reader.readInt(u16, .big)),
-            .item_id = try reader.readInt(u16, .big),
+            .item_id = @enumFromInt(try reader.readInt(u16, .big)),
             .metadata = try reader.readInt(u16, .big),
         };
     }
@@ -133,7 +133,7 @@ pub const EntityEquipment = struct {
     pub fn encode(self: EntityEquipment, writer: io.AnyWriter) !void {
         try writer.writeInt(u32, self.entity_id, .big);
         try writer.writeInt(u16, @intFromEnum(self.slot), .big);
-        try writer.writeInt(u16, self.item_id, .big);
+        try writer.writeInt(u16, @intFromEnum(self.item_id), .big);
         try writer.writeInt(u16, self.metadata, .big);
     }
 };
@@ -332,27 +332,23 @@ pub const PlayerPlaceBlock = struct {
     y: u8,
     z: i32,
     direction: u8,
-    item: ?mc.ItemId = null,
-    amount: ?u8 = null,
-    damage: ?u16 = null,
+    item: ?mc.Item,
 
     pub fn decode(reader: *StreamReader) !PlayerPlaceBlock {
-        var packet = PlayerPlaceBlock{
+        return PlayerPlaceBlock{
             .x = try reader.readInt(i32, .big),
             .y = try reader.readByte(),
             .z = try reader.readInt(i32, .big),
             .direction = try reader.readByte(),
+            .item = item: {
+                const item_id = try reader.readInt(u16, .big);
+                break :item if (item_id != mc.Item.NO_ITEM) .{
+                    .id = @enumFromInt(item_id),
+                    .amount = try reader.readByte(),
+                    .damage = try reader.readInt(u16, .big),
+                } else null;
+            },
         };
-
-        const item = try reader.readInt(i16, .big);
-        if (item < 0) {
-            return packet;
-        }
-
-        packet.item = @enumFromInt(item);
-        packet.amount = try reader.readByte();
-        packet.damage = try reader.readInt(u16, .big);
-        return packet;
     }
 
     pub fn encode(self: PlayerPlaceBlock, writer: io.AnyWriter) !void {
@@ -361,9 +357,9 @@ pub const PlayerPlaceBlock = struct {
         try writer.writeInt(i32, self.z, .big);
         try writer.writeByte(self.direction);
         if (self.item) |item| {
-            try writer.writeInt(u16, @intFromEnum(item), .big);
-            try writer.writeByte(self.amount.?);
-            try writer.writeInt(u16, self.damage.?, .big);
+            try writer.writeInt(u16, @intFromEnum(item.id), .big);
+            try writer.writeByte(item.amount);
+            try writer.writeInt(u16, item.damage, .big);
         } else {
             try writer.writeInt(i16, -1, .big);
         }
