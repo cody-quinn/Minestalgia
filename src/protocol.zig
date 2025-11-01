@@ -626,6 +626,100 @@ pub const PaintingEntitySpawn = struct {
     }
 };
 
+pub const EntityDestroy = struct {
+    pub const ID = 0x1D;
+
+    entity_id: u32,
+
+    pub fn decode(reader: *StreamReader) !EntityDestroy {
+        return EntityDestroy{
+            .entity_id = try reader.readInt(u32, .big),
+        };
+    }
+
+    pub fn encode(self: EntityDestroy, writer: io.AnyWriter) !void {
+        try writer.writeInt(u32, self.entity_id, .big);
+    }
+};
+
+pub const EntityMove = struct {
+    pub const ID = 0x1F;
+
+    entity_id: u32,
+    delta_x: u8,
+    delta_y: u8,
+    delta_z: u8,
+
+    pub fn decode(reader: *StreamReader) !EntityMove {
+        return EntityMove{
+            .entity_id = try reader.readInt(u32, .big),
+            .delta_x = try reader.readByte(),
+            .delta_y = try reader.readByte(),
+            .delta_z = try reader.readByte(),
+        };
+    }
+
+    pub fn encode(self: EntityMove, writer: io.AnyWriter) !void {
+        try writer.writeInt(u32, self.entity_id, .big);
+        try writer.writeByte(self.delta_x);
+        try writer.writeByte(self.delta_y);
+        try writer.writeByte(self.delta_z);
+    }
+};
+
+pub const EntityLook = struct {
+    pub const ID = 0x20;
+
+    entity_id: u32,
+    yaw: u8,
+    pitch: u8,
+
+    pub fn decode(reader: *StreamReader) !EntityLook {
+        return EntityLook{
+            .entity_id = try reader.readInt(u32, .big),
+            .yaw = try reader.readByte(),
+            .pitch = try reader.readByte(),
+        };
+    }
+
+    pub fn encode(self: EntityLook, writer: io.AnyWriter) !void {
+        try writer.writeInt(u32, self.entity_id, .big);
+        try writer.writeByte(self.yaw);
+        try writer.writeByte(self.pitch);
+    }
+};
+
+pub const EntityMoveAndLook = struct {
+    pub const ID = 0x21;
+
+    entity_id: u32,
+    delta_x: u8,
+    delta_y: u8,
+    delta_z: u8,
+    yaw: u8,
+    pitch: u8,
+
+    pub fn decode(reader: *StreamReader) !EntityMoveAndLook {
+        return EntityMoveAndLook{
+            .entity_id = try reader.readInt(u32, .big),
+            .delta_x = try reader.readByte(),
+            .delta_y = try reader.readByte(),
+            .delta_z = try reader.readByte(),
+            .yaw = try reader.readByte(),
+            .pitch = try reader.readByte(),
+        };
+    }
+
+    pub fn encode(self: EntityMoveAndLook, writer: io.AnyWriter) !void {
+        try writer.writeInt(u32, self.entity_id, .big);
+        try writer.writeByte(self.delta_x);
+        try writer.writeByte(self.delta_y);
+        try writer.writeByte(self.delta_z);
+        try writer.writeByte(self.yaw);
+        try writer.writeByte(self.pitch);
+    }
+};
+
 pub const EntityTeleport = struct {
     pub const ID = 0x22;
 
@@ -703,24 +797,154 @@ pub const MapChunk = struct {
         try writer.writeByte(self.size_z);
 
         const data = try self.chunk.getCompressedData();
-        try writer.writeInt(u32, @truncate(data.len), .big);
+        try writer.writeInt(u32, @intCast(data.len), .big);
         try writer.writeAll(data);
     }
 };
 
-pub const CloseWindow = struct {
+pub const WindowOpen = struct {
+    pub const ID = 0x64;
+
+    window_id: u8,
+    window_type: enum(u8) {
+        chest = 0,
+        crafting_table = 1,
+        furnace = 2,
+        dispenser = 3,
+    },
+    title: []const u8,
+    slots: u8,
+
+    pub fn encode(self: WindowOpen, writer: io.AnyWriter) !void {
+        try writer.writeByte(self.window_id);
+        try writer.writeByte(@intFromEnum(self.window_type));
+        // Write the string using string8 format
+        try writer.writeInt(u16, @intCast(self.title.len), .big);
+        try writer.writeAll(self.title);
+
+        try writer.writeByte(self.slots);
+    }
+};
+
+pub const WindowClose = struct {
     pub const ID = 0x65;
 
     window_id: u8,
 
-    pub fn decode(reader: *StreamReader) !CloseWindow {
-        return CloseWindow{
+    pub fn decode(reader: *StreamReader) !WindowClose {
+        return WindowClose{
             .window_id = try reader.readByte(),
         };
     }
 
-    pub fn encode(self: CloseWindow, writer: io.AnyWriter) !void {
+    pub fn encode(self: WindowClose, writer: io.AnyWriter) !void {
         try writer.writeByte(self.window_id);
+    }
+};
+
+pub const WindowClick = struct {
+    pub const ID = 0x66;
+
+    window_id: u8,
+    slot: u16,
+    button: enum(u8) {
+        left = 0,
+        right = 1,
+    },
+    transaction: u16,
+    shift: bool,
+    item: ?mc.Item,
+
+    pub fn decode(reader: *StreamReader) !WindowClick {
+        return WindowClick{
+            .window_id = try reader.readByte(),
+            .slot = try reader.readInt(u16, .big),
+            .button = @enumFromInt(try reader.readByte()),
+            .transaction = try reader.readInt(u16, .big),
+            .shift = try reader.readBoolean(),
+            .item = item: {
+                const item_id = try reader.readInt(u16, .big);
+                break :item if (item_id != mc.Item.NO_ITEM) .{
+                    .id = @enumFromInt(item_id),
+                    .amount = try reader.readByte(),
+                    .damage = try reader.readInt(u16, .big),
+                } else null;
+            },
+        };
+    }
+
+    pub fn encode(self: WindowClick, writer: io.AnyWriter) !void {
+        try writer.writeByte(self.window_id);
+        try writer.writeInt(u16, self.slot, .big);
+        try writer.writeByte(@intFromEnum(self.button));
+        try writer.writeInt(u16, self.transaction, .big);
+        try writer.writeByte(@intFromBool(self.shift));
+
+        if (self.item) |item| {
+            try writer.writeInt(u16, @intFromEnum(item.id), .big);
+            try writer.writeByte(item.amount);
+            try writer.writeInt(u16, item.damage, .big);
+        } else {
+            try writer.writeInt(u16, mc.Item.NO_ITEM, .big);
+        }
+    }
+};
+
+pub const WindowUpdate = struct {
+    pub const ID = 0x67;
+
+    window_id: u8,
+    slot: u16,
+    item: ?mc.Item,
+
+    pub fn encode(self: WindowUpdate, writer: io.AnyWriter) !void {
+        try writer.writeByte(self.window_id);
+        try writer.writeInt(u16, self.slot, .big);
+
+        if (self.item) |item| {
+            try writer.writeInt(u16, @intFromEnum(item.id), .big);
+            try writer.writeByte(item.amount);
+            try writer.writeInt(u16, item.damage, .big);
+        } else {
+            try writer.writeInt(u16, mc.Item.NO_ITEM, .big);
+        }
+    }
+};
+
+/// Packet to initialize a window with it's initial set of items
+pub const WindowInitialize = struct {
+    pub const ID = 0x68;
+
+    window_id: u8,
+    items: []const ?mc.Item,
+
+    pub fn encode(self: WindowInitialize, writer: io.AnyWriter) !void {
+        try writer.writeByte(self.window_id);
+        try writer.writeInt(u16, @intCast(self.items.len), .big);
+
+        for (self.items) |opt_item| {
+            if (opt_item) |item| {
+                try writer.writeInt(u16, @intFromEnum(item.id), .big);
+                try writer.writeByte(item.amount);
+                try writer.writeInt(u16, item.damage, .big);
+            } else {
+                try writer.writeInt(u16, mc.Item.NO_ITEM, .big);
+            }
+        }
+    }
+};
+
+pub const WindowTransactionResolved = struct {
+    pub const ID = 0x6A;
+
+    window_id: u8,
+    transaction: u16,
+    accepted: bool,
+
+    pub fn encode(self: WindowTransactionResolved, writer: io.AnyWriter) !void {
+        try writer.writeByte(self.window_id);
+        try writer.writeInt(u16, self.transaction, .big);
+        try writer.writeByte(@intFromBool(self.accepted));
     }
 };
 
@@ -751,10 +975,19 @@ pub const PacketId = enum(u8) {
     generic_entity_spawn = GenericEntitySpawn.ID,
     living_entity_spawn = LivingEntitySpawn.ID,
     painting_entity_spawn = PaintingEntitySpawn.ID,
+    entity_destroy = EntityDestroy.ID,
+    entity_move = EntityMove.ID,
+    entity_look = EntityLook.ID,
+    entity_move_and_look = EntityMoveAndLook.ID,
     entity_teleport = EntityTeleport.ID,
     prepare_chunk = PrepareChunk.ID,
     map_chunk = MapChunk.ID,
-    close_window = CloseWindow.ID,
+    window_open = WindowOpen.ID,
+    window_close = WindowClose.ID,
+    window_click = WindowClick.ID,
+    window_update = WindowUpdate.ID,
+    window_initialize = WindowInitialize.ID,
+    window_transaction_resolved = WindowTransactionResolved.ID,
 };
 
 pub const Packet = union(PacketId) {
@@ -784,10 +1017,19 @@ pub const Packet = union(PacketId) {
     generic_entity_spawn: GenericEntitySpawn,
     living_entity_spawn: LivingEntitySpawn,
     painting_entity_spawn: PaintingEntitySpawn,
+    entity_destroy: EntityDestroy,
+    entity_move: EntityMove,
+    entity_look: EntityLook,
+    entity_move_and_look: EntityMoveAndLook,
     entity_teleport: EntityTeleport,
     prepare_chunk: PrepareChunk,
     map_chunk: MapChunk,
-    close_window: CloseWindow,
+    window_open: WindowOpen,
+    window_close: WindowClose,
+    window_click: WindowClick,
+    window_update: WindowUpdate,
+    window_initialize: WindowInitialize,
+    window_transaction_resolved: WindowTransactionResolved,
 };
 
 comptime {
@@ -825,10 +1067,19 @@ pub fn readPacket(reader: *StreamReader, alloc: std.mem.Allocator) !Packet {
         ItemEntityCollect.ID => .{ .item_entity_collect = try ItemEntityCollect.decode(reader) },
         // GenericEntitySpawn
         // LivingEntitySpawn
+        EntityDestroy.ID => .{ .entity_destroy = try EntityDestroy.decode(reader) },
+        EntityMove.ID => .{ .entity_move = try EntityMove.decode(reader) },
+        EntityLook.ID => .{ .entity_look = try EntityLook.decode(reader) },
+        EntityMoveAndLook.ID => .{ .entity_move_and_look = try EntityMoveAndLook.decode(reader) },
         EntityTeleport.ID => .{ .entity_teleport = try EntityTeleport.decode(reader) },
         // PrepareChunk
         // MapChunk
-        CloseWindow.ID => .{ .close_window = try CloseWindow.decode(reader) },
+        // WindowOpen
+        WindowClose.ID => .{ .window_close = try WindowClose.decode(reader) },
+        WindowClick.ID => .{ .window_click = try WindowClick.decode(reader) },
+        // WindowUpdate
+        // WindowInitialize
+        // WindowTransactionResolved
         else => {
             std.debug.print("Read packet ID 0x{0X:0>2} ({0d})\n", .{packet_id});
             return error.InvalidPacket;
@@ -862,7 +1113,17 @@ pub fn writePacket(writer: io.AnyWriter, packet: Packet) !void {
         .living_entity_spawn => try packet.living_entity_spawn.encode(writer),
         .prepare_chunk => try packet.prepare_chunk.encode(writer),
         .map_chunk => try packet.map_chunk.encode(writer),
+        .entity_destroy => try packet.entity_destroy.encode(writer),
+        .entity_move => try packet.entity_move.encode(writer),
+        .entity_look => try packet.entity_look.encode(writer),
+        .entity_move_and_look => try packet.entity_move_and_look.encode(writer),
         .entity_teleport => try packet.entity_teleport.encode(writer),
+        .window_open => try packet.window_open.encode(writer),
+        .window_close => try packet.window_close.encode(writer),
+        .window_click => try packet.window_click.encode(writer),
+        .window_update => try packet.window_update.encode(writer),
+        .window_initialize => try packet.window_initialize.encode(writer),
+        .window_transaction_resolved => try packet.window_transaction_resolved.encode(writer),
         else => {
             std.debug.print("Write packet ID 0x{0X:0>2} ({0d})\n", .{@intFromEnum(packet)});
             return error.InvalidPacket;

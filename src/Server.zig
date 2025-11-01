@@ -17,6 +17,8 @@ const ServerConnection = @import("ServerConnection.zig");
 const Chunk = @import("world/Chunk.zig");
 const overworld_gen = @import("world/gen/overworld.zig");
 
+const mc = @import("mc.zig");
+
 allocator: Allocator,
 
 running: bool = true,
@@ -208,26 +210,20 @@ fn processPacket(self: *Self, packet: proto.Packet, client: *ServerConnection) !
                 .time = 6_000,
             } });
 
-            // Update health
-            _ = try posix.write(client.socket, &.{
-                0x08,
-                0x00,
-                0x10,
-            });
+            try client.writeMessage(.{ .update_health = .{
+                .health = 20
+            } });
 
             // Window items
-            _ = try posix.write(client.socket, &.{
-                0x68,
-                0x00, // inv id
-                0x00, 44, // item count
-            });
+            const items = [_]?mc.Item{ null } ** 9 ++ [_]?mc.Item{
+                mc.Item.stack(.stone_block),
+                mc.Item.stack(.cobblestone_block),
+            };
 
-            for (1..45) |j| {
-                const k: u8 = @intCast(j);
-                _ = try posix.write(client.socket, &.{
-                    0x00, k, k, 0x00, 0x00,
-                });
-            }
+            try client.writeMessage(.{ .window_initialize = .{
+                .window_id = 0,
+                .items = &items,
+            } });
 
             var timer = try std.time.Timer.start();
             for (self.chunks.items) |*chunk| {

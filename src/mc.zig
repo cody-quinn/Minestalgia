@@ -226,6 +226,7 @@ pub const ItemId = enum(u16) {
     sponge_block = 19,
     glass_block = 20,
     lapis_ore_block = 21,
+    lapis_block_block = 22,
     dispenser_block = 23,
     sandstone_block = 24,
     noteblock_block = 25,
@@ -435,6 +436,31 @@ pub const ItemId = enum(u16) {
 
     pub fn fromBlock(block: BlockId) ItemId {
         return @bitCast(block);
+    }
+};
+
+pub const Item = struct {
+    /// ID used to represent no item in inventory actions
+    pub const NO_ITEM: u16 = 65535;
+
+    id: ItemId,
+    amount: u8,
+    damage: u16,
+
+    pub fn single(id: ItemId) Item {
+        return Item{
+            .id = id,
+            .amount = 1,
+            .damage = 0,
+        };
+    }
+
+    pub fn stack(id: ItemId) Item {
+        return Item {
+            .id = id,
+            .amount = 64,
+            .damage = 0,
+        };
     }
 };
 
