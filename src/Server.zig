@@ -55,7 +55,7 @@ pub fn init(allocator: Allocator, max_clients: usize, world_seed: u64, world_siz
     }
 
     const time = timer.read();
-    std.debug.print("Time to generate chunks: {}.{}ms\n", .{time / 1_000_000, time % 1000});
+    std.debug.print("Time to generate chunks: {}.{}ms\n", .{ time / 1_000_000, time % 1000 });
 
     return Self{
         .allocator = allocator,
@@ -211,13 +211,21 @@ fn processPacket(self: *Self, packet: proto.Packet, client: *ServerConnection) !
             } });
 
             try client.writeMessage(.{ .update_health = .{
-                .health = 20
+                .health = 20,
             } });
 
             // Window items
-            const items = [_]?mc.Item{ null } ** 9 ++ [_]?mc.Item{
-                mc.Item.stack(.stone_block),
-                mc.Item.stack(.cobblestone_block),
+            const items = [_]?mc.Item{null} ** 5 ++ [_]?mc.Item{
+                mc.Item.single(.glass_block),
+                mc.Item.single(.leather_chestplate),
+                mc.Item.single(.leather_pants),
+                mc.Item.single(.leather_boots),
+
+                mc.Item.stack(.wool_block),
+                mc.Item.infinite(.stone_block),
+                mc.Item.infinite(.cobblestone_block),
+                mc.Item.infinite(.log_block),
+                mc.Item.infinite(.planks_block),
             };
 
             try client.writeMessage(.{ .window_initialize = .{
@@ -235,7 +243,7 @@ fn processPacket(self: *Self, packet: proto.Packet, client: *ServerConnection) !
                 try client.writeMessage(.{ .map_chunk = .ofChunk(chunk) });
             }
             const time = timer.read();
-            std.debug.print("Time to send all chunk packets: {}.{}ms\n", .{time / 1_000_000, time % 1000});
+            std.debug.print("Time to send all chunk packets: {}.{}ms\n", .{ time / 1_000_000, time % 1000 });
 
             try client.writeMessage(.{ .player_position_and_look = .{
                 .x = player.x,

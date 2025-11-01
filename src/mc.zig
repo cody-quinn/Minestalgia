@@ -448,19 +448,27 @@ pub const Item = struct {
     damage: u16,
 
     pub fn single(id: ItemId) Item {
-        return Item{
-            .id = id,
-            .amount = 1,
-            .damage = 0,
-        };
+        return singleDamaged(id, 0);
+    }
+
+    pub fn singleDamaged(id: ItemId, damage: u16) Item {
+        return Item{ .id = id, .amount = 1, .damage = damage };
     }
 
     pub fn stack(id: ItemId) Item {
-        return Item {
-            .id = id,
-            .amount = 64,
-            .damage = 0,
-        };
+        return stackDamaged(id, 0);
+    }
+
+    pub fn stackDamaged(id: ItemId, damage: u16) Item {
+        return Item{ .id = id, .amount = 64, .damage = damage };
+    }
+
+    pub fn infinite(id: ItemId) Item {
+        return infiniteDamaged(id, 0);
+    }
+
+    pub fn infiniteDamaged(id: ItemId, damage: u16) Item {
+        return Item{ .id = id, .amount = 255, .damage = damage };
     }
 };
 
