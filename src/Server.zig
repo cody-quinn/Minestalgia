@@ -390,14 +390,12 @@ fn processCommand(self: *Self, player: *Player, raw_command: []const u8) !void {
                 .pitch = 0,
             } });
 
-            for (0..5) |slot| {
-                try player.connection.writeMessage(.{ .entity_equipment = .{
-                    .entity_id = npcEid,
-                    .item_id = @intCast(42 + 256 + 3 * slot),
-                    .slot = @enumFromInt(slot),
-                    .metadata = 0,
-                } });
-            }
+            try player.connection.writeMessage(.{ .entity_equipment = .{
+                .entity_id = npcEid,
+                .item_id = .gold_chestplate,
+                .slot = .chestplate,
+                .metadata = 0,
+            } });
 
             try player.connection.writeMessage(.{
                 .chat_message = .ofString("Spawned a NPC with ID " ++
