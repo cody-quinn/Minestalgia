@@ -1,17 +1,15 @@
-const Self = @This();
-
 const std = @import("std");
-const proto = @import("protocol.zig");
-
 const mem = std.mem;
 const net = std.net;
 const posix = std.posix;
-
 const Allocator = mem.Allocator;
 
-const Player = @import("Player.zig");
-const StreamReader = @import("StreamReader.zig");
 const NetworkBuffer = @import("NetworkBuffer.zig");
+const Player = @import("Player.zig");
+const proto = @import("protocol.zig");
+const StreamReader = @import("StreamReader.zig");
+
+const Self = @This();
 
 const BUFFER_SIZE = 8_192;
 
@@ -57,6 +55,24 @@ pub fn deinit(self: *Self) void {
         };
     }
     self.clientbound_buffer.deinit();
+}
+
+pub fn format(
+    self: *const Self,
+    comptime fmt: []const u8,
+    options: std.fmt.FormatOptions,
+    out_stream: anytype,
+) !void {
+    _ = options;
+    if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
+    if (self.player) |player| {
+        try std.fmt.format(out_stream, "{any} ({s})", .{
+            self.address,
+            player.username(),
+        });
+    } else {
+        try std.fmt.format(out_stream, "{any}", .{self.address});
+    }
 }
 
 pub fn readMessage(self: *Self, allocator: Allocator) !proto.Packet {

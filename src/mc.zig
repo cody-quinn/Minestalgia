@@ -185,12 +185,22 @@ pub const BlockId = enum(u8) {
     /// Metadata: Direction & toggled
     trapdoor = 96,
 
-    pub fn fromItem(item: ItemId) ?BlockId {
+    pub fn fromItemId(item: ItemId) ?BlockId {
         const id = @intFromEnum(item);
         if (id > 96 or id == 36) {
             return null;
         }
         return @enumFromInt(id);
+    }
+
+    /// Whether the block is affected by metadata
+    pub fn hasMetadata(block: BlockId) bool {
+        return block == .wool or
+            block == .log or
+            block == .leaves or
+            block == .tallgrass or
+            block == .slab or
+            block == .double_slab;
     }
 };
 
@@ -434,7 +444,7 @@ pub const ItemId = enum(u16) {
     map = 358,
     shears = 359,
 
-    pub fn fromBlock(block: BlockId) ItemId {
+    pub fn fromBlockId(block: BlockId) ItemId {
         return @bitCast(block);
     }
 };

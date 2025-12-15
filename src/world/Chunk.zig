@@ -1,35 +1,33 @@
-const Self = @This();
-
 const std = @import("std");
-
-const Allocator = std.mem.Allocator;
-
-const Player = @import("../Player.zig");
+const mem = std.mem;
 
 const mc = @import("../mc.zig");
+const Player = @import("../Player.zig");
+const Audience = @import("Audience.zig");
 
-const blocks_per_chunk = 16 * 16 * 128;
+const Self = @This();
 
-viewers: std.ArrayList(*Player),
+/// Audience of players that can see the chunk and should recieve updates
+audience: Audience,
 
 chunk_x: i32,
 chunk_z: i32,
 
 data: [81_920]u8 = [_]u8{0} ** 81_920,
 
-// Cache compressed version of chunk
+/// Cache of compressed version of chunk
 compressed_data: std.ArrayList(u8),
 compressed_valid: bool,
 
-pub fn init(allocator: Allocator, chunk_x: i32, chunk_z: i32) !Self {
-    const viewers = try std.ArrayList(*Player).initCapacity(allocator, 64);
-    errdefer viewers.deinit();
+pub fn init(allocator: mem.Allocator, chunk_x: i32, chunk_z: i32) !Self {
+    const audience = Audience.init(allocator);
+    errdefer audience.deinit();
 
     const compressed_data = try std.ArrayList(u8).initCapacity(allocator, 2048);
     errdefer compressed_data.deinit();
 
     var self = Self{
-        .viewers = viewers,
+        .audience = audience,
         .chunk_x = chunk_x,
         .chunk_z = chunk_z,
         .compressed_data = compressed_data,
@@ -44,11 +42,11 @@ pub fn init(allocator: Allocator, chunk_x: i32, chunk_z: i32) !Self {
 }
 
 pub fn deinit(self: *const Self) void {
-    self.viewers.deinit();
+    self.audience.deinit();
     self.compressed_data.deinit();
 }
 
-pub fn setBlock(self: *Self, x: anytype, y: anytype, z: anytype, block: mc.BlockId, opt_metadata: ?mc.BlockMetadata) void {
+pub fn setBlock(self: *Self, x: anytype, y: anytype, z: anytype, block: mc.BlockId, opt_metadata: ?mc.BlockMetadata) !void {
     const idx = coordsToIndex(x, y, z);
     const odd = idx & 1;
     const metadata: u8 = if (opt_metadata) |metadata| @bitCast(metadata) else 0;
@@ -63,10 +61,13 @@ pub fn setBlock(self: *Self, x: anytype, y: anytype, z: anytype, block: mc.Block
     }
 
     self.compressed_valid = false;
-
-    for (self.viewers.items) |viewer| {
-        _ = viewer;
-    }
+    try self.audience.broadcastMessage(.{ .block_update = .{
+        .x = @as(i32, @intCast(x)) + self.chunk_x * 16,
+        .y = @intCast(y),
+        .z = @as(i32, @intCast(z)) + self.chunk_z * 16,
+        .block = block,
+        .metadata = opt_metadata,
+    } });
 }
 
 pub fn getBlock(self: *Self, x: anytype, y: anytype, z: anytype) mc.BlockId {

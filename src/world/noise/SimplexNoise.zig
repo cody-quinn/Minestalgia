@@ -1,22 +1,20 @@
-const Self = @This();
-
-// Minecraft Beta 1.7.3 uses "Simplex Noise" by Ken Perlin for some things, like generating
-// temperature and humidity, which then goes on to influence the biome and terrain generation.
-// Similarly to the Perlin Noise generation it has the modification of storing an x and z offset
-// that will be used. It also uses a table for the gradient for some reason? This I'm still confused
-// about :P
-//
-// Implementation based on:
-// - https://github.com/SRombauts/SimplexNoise
-// - Minecraft Beta 1.7.3 Source Code (decompiled using Ornithe)
+//! Minecraft Beta 1.7.3 uses "Simplex Noise" by Ken Perlin for some things, like generating
+//! temperature and humidity, which then goes on to influence the biome and terrain generation.
+//! Similarly to the Perlin Noise generation it has the modification of storing an x and z offset
+//! that will be used. In addition it uses a table for the gradient.
+//!
+//! Implementation based on:
+//! - https://github.com/SRombauts/SimplexNoise
+//! - Minecraft Beta 1.7.3 Source Code (decompiled using Ornithe)
 
 const std = @import("std");
 const math = std.math;
 
+const Random = @import("../../jvm/Random.zig");
 const Vec2 = @import("../../vec.zig").Vec2;
 const Vec3 = @import("../../vec.zig").Vec3;
 
-const Random = @import("../../jvm/Random.zig");
+const Self = @This();
 
 pub const OCTAVE_MOD_NUMERATOR: f64 = 0.55;
 

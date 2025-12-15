@@ -1,23 +1,19 @@
-const Self = @This();
-
 const std = @import("std");
-const proto = @import("protocol.zig");
-
 const mem = std.mem;
 const net = std.net;
 const posix = std.posix;
 const linux = std.os.linux;
-
 const Allocator = mem.Allocator;
 
+const mc = @import("mc.zig");
 const Player = @import("Player.zig");
-const StreamReader = @import("StreamReader.zig");
+const proto = @import("protocol.zig");
 const ServerConnection = @import("ServerConnection.zig");
-
+const StreamReader = @import("StreamReader.zig");
 const Chunk = @import("world/Chunk.zig");
 const overworld_gen = @import("world/gen/overworld.zig");
 
-const mc = @import("mc.zig");
+const Self = @This();
 
 allocator: Allocator,
 
@@ -128,17 +124,17 @@ pub fn run(self: *Self, address: net.Address) !void {
                     while (true) {
                         const packet = client.readMessage(packet_arena.allocator()) catch |err| switch (err) {
                             error.NettyProtocol => {
-                                std.debug.print("Client {} is running a modern version of MC\n", .{client.address.getPort()});
+                                std.debug.print("Client {any} is running a modern version of MC\n", .{client});
                                 self.removeClient(client);
                                 continue :events;
                             },
                             error.Disconnected => {
-                                std.debug.print("Client {} disconnected\n", .{client.address.getPort()});
+                                std.debug.print("Client {any} disconnected\n", .{client});
                                 self.removeClient(client);
                                 continue :events;
                             },
                             error.InvalidPacket => {
-                                std.debug.print("Client {} sent invalid packet\n", .{client.address.getPort()});
+                                std.debug.print("Client {any} sent invalid packet\n", .{client});
                                 const nb = client.serverbound_buffer;
                                 printBytes(nb.buffer[nb.read_head..nb.write_head]);
                                 self.removeClient(client);
@@ -146,10 +142,7 @@ pub fn run(self: *Self, address: net.Address) !void {
                             },
                             error.EndOfStream => break,
                             else => {
-                                std.debug.print("Client {} had error {}\n", .{
-                                    client.address.getPort(),
-                                    err,
-                                });
+                                std.debug.print("Client {any} had unexpected error {}\n", .{ client, err });
                                 continue :events;
                             },
                         };
@@ -162,9 +155,7 @@ pub fn run(self: *Self, address: net.Address) !void {
 
         for (self.connections[0..self.connected]) |connection| {
             connection.writeMessage(.{ .keep_alive = .{} }) catch {
-                std.debug.print("Error sending keep alive to client {}\n", .{
-                    connection.address.getPort(),
-                });
+                std.debug.print("Error sending keep alive to client {any}\n", .{connection});
                 continue;
             };
         }
@@ -235,6 +226,7 @@ fn processPacket(self: *Self, packet: proto.Packet, client: *ServerConnection) !
 
             var timer = try std.time.Timer.start();
             for (self.chunks.items) |*chunk| {
+                try chunk.audience.insert(player);
                 try client.writeMessage(.{ .prepare_chunk = .{
                     .chunk_x = chunk.chunk_x,
                     .chunk_z = chunk.chunk_z,
@@ -297,10 +289,10 @@ fn processPacket(self: *Self, packet: proto.Packet, client: *ServerConnection) !
     }
 }
 
-fn processPlayPacket(self: *Self, packet: proto.Packet, player: *Player) !void {
+fn processPlayPacket(self: *Self, packet_type: proto.Packet, player: *Player) !void {
     var updated_position = false;
 
-    switch (packet) {
+    switch (packet_type) {
         .keep_alive, .handshake, .login => unreachable,
         .chat_message => |chat_message| {
             const raw_message = chat_message.message;
@@ -328,6 +320,68 @@ fn processPlayPacket(self: *Self, packet: proto.Packet, player: *Player) !void {
             player.x = pos.x;
             player.y = pos.y;
             player.z = pos.z;
+        },
+        .player_digging => |packet| {
+            const chunk_x = @divFloor(packet.x, 16);
+            const chunk_z = @divFloor(packet.z, 16);
+            const chunk = for (self.chunks.items) |*chunk| {
+                if (chunk.chunk_x == chunk_x and chunk.chunk_z == chunk_z) {
+                    break chunk;
+                }
+            } else {
+                std.debug.print(
+                    "Couldn't find chunk {}, {} to place block at {}, {}, {}\n",
+                    .{ chunk_x, chunk_z, packet.x, packet.y, packet.z },
+                );
+                return;
+            };
+
+            const local_x = @mod(packet.x, 16);
+            const local_z = @mod(packet.z, 16);
+
+            if (packet.status == 0 or packet.status == 2) {
+                try chunk.setBlock(local_x, packet.y, local_z, .air, null);
+            }
+        },
+        .player_place_block => |packet| {
+            var y = packet.y;
+            var world_x = packet.x;
+            var world_z = packet.z;
+
+            switch (packet.direction) {
+                0 => y -|= 1,
+                1 => y += 1,
+                2 => world_z -= 1,
+                3 => world_z += 1,
+                4 => world_x -= 1,
+                5 => world_x += 1,
+                else => {
+                    // TODO: Handle special case where direction is 255
+                    return;
+                },
+            }
+
+            const chunk_x = @divFloor(world_x, 16);
+            const chunk_z = @divFloor(world_z, 16);
+            const chunk = for (self.chunks.items) |*chunk| {
+                if (chunk.chunk_x == chunk_x and chunk.chunk_z == chunk_z) {
+                    break chunk;
+                }
+            } else {
+                std.debug.print(
+                    "Couldn't find chunk {}, {} to place block at {}, {}, {}\n",
+                    .{ chunk_x, chunk_z, world_x, y, world_z },
+                );
+                return;
+            };
+
+            const local_x = @mod(world_x, 16);
+            const local_z = @mod(world_z, 16);
+
+            if (packet.item) |item| {
+                const block = mc.BlockId.fromItemId(item.id) orelse return;
+                try chunk.setBlock(local_x, y, local_z, block, null);
+            }
         },
         else => {},
     }

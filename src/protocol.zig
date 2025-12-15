@@ -2,12 +2,10 @@
 // - https://minecraft.wiki/w/Minecraft_Wiki:Projects/wiki.vg_merge/Protocol?oldid=2769763
 
 const std = @import("std");
-
-const StreamReader = @import("StreamReader.zig");
 const io = std.io;
 
 const mc = @import("mc.zig");
-
+const StreamReader = @import("StreamReader.zig");
 const Chunk = @import("world/Chunk.zig");
 
 fn writeString16(str: []const u8, writer: io.AnyWriter) !void {
@@ -798,6 +796,34 @@ pub const MapChunk = struct {
     }
 };
 
+pub const BlockUpdate = struct {
+    pub const ID = 0x35;
+
+    x: i32,
+    y: u8,
+    z: i32,
+    block: mc.BlockId,
+    metadata: ?mc.BlockMetadata,
+
+    pub fn decode(reader: *StreamReader) !BlockUpdate {
+        return BlockUpdate{
+            .x = try reader.readInt(i32, .big),
+            .y = try reader.readByte(),
+            .z = try reader.readInt(i32, .big),
+            .block = @enumFromInt(try reader.readByte()),
+            .metadata = @bitCast(try reader.readByte()),
+        };
+    }
+
+    pub fn encode(self: BlockUpdate, writer: io.AnyWriter) !void {
+        try writer.writeInt(i32, self.x, .big);
+        try writer.writeByte(self.y);
+        try writer.writeInt(i32, self.z, .big);
+        try writer.writeByte(@intFromEnum(self.block));
+        try writer.writeByte(if (self.metadata) |metadata| @bitCast(metadata) else 0);
+    }
+};
+
 pub const WindowOpen = struct {
     pub const ID = 0x64;
 
@@ -978,6 +1004,7 @@ pub const PacketId = enum(u8) {
     entity_teleport = EntityTeleport.ID,
     prepare_chunk = PrepareChunk.ID,
     map_chunk = MapChunk.ID,
+    block_update = BlockUpdate.ID,
     window_open = WindowOpen.ID,
     window_close = WindowClose.ID,
     window_click = WindowClick.ID,
@@ -1020,6 +1047,7 @@ pub const Packet = union(PacketId) {
     entity_teleport: EntityTeleport,
     prepare_chunk: PrepareChunk,
     map_chunk: MapChunk,
+    block_update: BlockUpdate,
     window_open: WindowOpen,
     window_close: WindowClose,
     window_click: WindowClick,
@@ -1070,6 +1098,7 @@ pub fn readPacket(reader: *StreamReader, alloc: std.mem.Allocator) !Packet {
         EntityTeleport.ID => .{ .entity_teleport = try EntityTeleport.decode(reader) },
         // PrepareChunk
         // MapChunk
+        BlockUpdate.ID => .{ .block_update = try BlockUpdate.decode(reader) },
         // WindowOpen
         WindowClose.ID => .{ .window_close = try WindowClose.decode(reader) },
         WindowClick.ID => .{ .window_click = try WindowClick.decode(reader) },
@@ -1107,13 +1136,14 @@ pub fn writePacket(writer: io.AnyWriter, packet: Packet) !void {
         .item_entity_collect => try packet.item_entity_collect.encode(writer),
         .generic_entity_spawn => try packet.generic_entity_spawn.encode(writer),
         .living_entity_spawn => try packet.living_entity_spawn.encode(writer),
-        .prepare_chunk => try packet.prepare_chunk.encode(writer),
-        .map_chunk => try packet.map_chunk.encode(writer),
         .entity_destroy => try packet.entity_destroy.encode(writer),
         .entity_move => try packet.entity_move.encode(writer),
         .entity_look => try packet.entity_look.encode(writer),
         .entity_move_and_look => try packet.entity_move_and_look.encode(writer),
         .entity_teleport => try packet.entity_teleport.encode(writer),
+        .prepare_chunk => try packet.prepare_chunk.encode(writer),
+        .map_chunk => try packet.map_chunk.encode(writer),
+        .block_update => try packet.block_update.encode(writer),
         .window_open => try packet.window_open.encode(writer),
         .window_close => try packet.window_close.encode(writer),
         .window_click => try packet.window_click.encode(writer),
